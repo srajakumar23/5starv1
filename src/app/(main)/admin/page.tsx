@@ -72,7 +72,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
     // Determine what to fetch based on View
     if (view === 'home' || view === 'analytics' || view === 'reports') {
         analyticsPromise = getAdminAnalytics(filters.academicYear, filters.studentSource)
-        // Home view might use referral stats too?
+        campusesPromise = getCampuses()
     }
 
     if (view === 'referrals') {

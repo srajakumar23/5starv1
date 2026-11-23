@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Users, TrendingUp, Award, BarChart3, IndianRupee, CheckCircle, RefreshCw, Trophy, Building2, BookOpen, Shield, GraduationCap, Phone, Mail, Clock, Plus, Filter, Search, X, Pencil, UserPlus, ShieldCheck } from 'lucide-react'
+import { Users, TrendingUp, Award, BarChart3, IndianRupee, CheckCircle, RefreshCw, Trophy, Building2, BookOpen, Shield, GraduationCap, Phone, Mail, Clock, Plus, Filter, Search, X, Pencil, UserPlus, ShieldCheck, Calendar } from 'lucide-react'
 import { ReferralManagementTable } from './referral-table-advanced'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -47,6 +47,10 @@ function RefProgressBar({ progress, label, className = "", colorClasses = "" }: 
 const EngagementPanel = dynamic(() => import('@/components/superadmin/EngagementPanel').then(mod => mod.EngagementPanel), { ssr: false })
 const ProgramManager = dynamic(() => import('@/components/superadmin/ProgramManager').then(mod => mod.ProgramManager), { ssr: false })
 const ProgramLeadsTable = dynamic(() => import('@/components/superadmin/ProgramLeadsTable').then(mod => mod.ProgramLeadsTable), { ssr: false })
+const ExecutiveInsightsPanel = dynamic(() => import('@/components/superadmin/ExecutiveInsightsPanel').then(mod => mod.ExecutiveInsightsPanel), {
+    ssr: false,
+    loading: () => <div className="h-96 w-full animate-pulse bg-white rounded-[32px] border border-gray-100" />
+})
 import {
     generateLeadPipelineReport,
     generateReferralPerformanceReport,
@@ -177,6 +181,9 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
 
     // View state
     const [selectedView, setSelectedView] = useState<string>(initialView)
+    const [insightsCampus, setInsightsCampus] = useState<string>('all')
+    const [insightsDateRange, setInsightsDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
+    const selectedYear = searchParams.get('year') || 'All'
 
     // Fetch Program Leads when view selected
     useEffect(() => {
@@ -508,6 +515,14 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             </div>
                         </div>
                     </div>
+
+                    {permissions?.analytics?.access && (
+                        <ExecutiveInsightsPanel
+                            campus="all"
+                            academicYear={selectedYear}
+                            referralsBasePath="/admin?view=referrals"
+                        />
+                    )}
                 </div>
             )}
 
@@ -701,6 +716,64 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                                 ))}
                             </div>
                         </div>
+                    </div>
+
+                    {/* Executive Intelligence & Bottlenecks Filter Bar + Panel */}
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-xs font-black uppercase tracking-wider text-gray-500">
+                                Pipeline Intelligence Filters
+                            </span>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-1.5">
+                                    <Calendar size={14} className="text-gray-400" />
+                                    <input
+                                        type="date"
+                                        className="bg-transparent text-[11px] font-bold text-gray-700 focus:outline-none w-24"
+                                        value={insightsDateRange.start}
+                                        onChange={(e) => setInsightsDateRange(prev => ({ ...prev, start: e.target.value }))}
+                                        suppressHydrationWarning
+                                    />
+                                    <span className="text-gray-300">-</span>
+                                    <input
+                                        type="date"
+                                        className="bg-transparent text-[11px] font-bold text-gray-700 focus:outline-none w-24"
+                                        value={insightsDateRange.end}
+                                        onChange={(e) => setInsightsDateRange(prev => ({ ...prev, end: e.target.value }))}
+                                        suppressHydrationWarning
+                                    />
+                                    {(insightsDateRange.start || insightsDateRange.end) && (
+                                        <button
+                                            onClick={() => setInsightsDateRange({ start: '', end: '' })}
+                                            className="text-[10px] font-black uppercase text-red-500 hover:text-red-700 pl-1"
+                                        >
+                                            Clear
+                                        </button>
+                                    )}
+                                </div>
+                                {campuses.length > 0 && (
+                                    <select
+                                        className="p-2 border border-gray-200 rounded-xl bg-gray-50 text-xs font-bold text-gray-700 outline-none cursor-pointer"
+                                        value={insightsCampus}
+                                        onChange={(e) => setInsightsCampus(e.target.value)}
+                                        suppressHydrationWarning
+                                    >
+                                        <option value="all">All Allowed Campuses</option>
+                                        {campuses.map(c => (
+                                            <option key={c.id} value={c.campusName}>{c.campusName}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                        </div>
+
+                        <ExecutiveInsightsPanel
+                            campus={insightsCampus}
+                            academicYear={selectedYear}
+                            startDate={insightsDateRange.start || undefined}
+                            endDate={insightsDateRange.end || undefined}
+                            referralsBasePath="/admin?view=referrals"
+                        />
                     </div>
 
                 </div>

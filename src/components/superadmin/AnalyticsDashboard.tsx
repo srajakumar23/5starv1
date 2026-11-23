@@ -1,24 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { StatsCards } from '@/components/superadmin/StatsCards'
 import { CampusPerformanceTable } from '@/components/superadmin/CampusPerformanceTable'
 import { CampusBarChart, ConversionFunnelChart, GrowthTrendChart, GenericPieChart, CampusEfficiencyChart } from '@/components/analytics/analytics-components'
 import { SystemAnalytics, CampusPerformance } from '@/types'
-import { TrendingUp, Target, Users, CheckCircle } from 'lucide-react'
+import { TrendingUp, Target, Users, CheckCircle, Calendar, Loader2, Sparkles, Activity } from 'lucide-react'
 
 // Dynamic Imports related to this view
 const RetentionHeatmap = dynamic(() => import('@/components/analytics/RetentionHeatmap').then(m => m.RetentionHeatmap), {
     ssr: false,
     loading: () => <div className="h-96 w-full animate-pulse bg-gray-100 rounded-3xl" />
 })
+const ExecutiveInsightsPanel = dynamic(() => import('@/components/superadmin/ExecutiveInsightsPanel').then(m => m.ExecutiveInsightsPanel), {
+    ssr: false,
+    loading: () => <div className="h-96 w-full animate-pulse bg-white rounded-[32px] border border-gray-100" />
+})
 
 import { AnalyticsCharts } from '@/components/superadmin/AnalyticsCharts'
 import { toast } from 'sonner'
-
-import { Calendar, Loader2, Sparkles, Activity } from 'lucide-react'
-import { useEffect } from 'react'
 
 interface AnalyticsDashboardProps {
     analyticsData: SystemAnalytics
@@ -28,6 +30,8 @@ interface AnalyticsDashboardProps {
 }
 
 export function AnalyticsDashboard({ analyticsData: initialAnalytics, trendData, campusCompData, deepTrends }: AnalyticsDashboardProps) {
+    const searchParams = useSearchParams()
+    const selectedYear = searchParams.get('year') || 'All'
     const [isTableExpanded, setIsTableExpanded] = useState(false)
     const [selectedCampus, setSelectedCampus] = useState<string>('all')
     const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
@@ -98,6 +102,14 @@ export function AnalyticsDashboard({ analyticsData: initialAnalytics, trendData,
                             onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
                             suppressHydrationWarning
                         />
+                        {(dateRange.start || dateRange.end) && (
+                            <button
+                                onClick={() => setDateRange({ start: '', end: '' })}
+                                className="text-[10px] font-black uppercase text-red-500 hover:text-red-700 pl-1"
+                            >
+                                Clear
+                            </button>
+                        )}
                     </div>
 
                     <select
@@ -115,6 +127,15 @@ export function AnalyticsDashboard({ analyticsData: initialAnalytics, trendData,
             </div>
 
             <StatsCards analytics={displayedAnalytics} growthTrend={trendData} />
+
+            {isMounted && (
+                <ExecutiveInsightsPanel
+                    campus={selectedCampus}
+                    academicYear={selectedYear}
+                    startDate={dateRange.start || undefined}
+                    endDate={dateRange.end || undefined}
+                />
+            )}
 
 
 

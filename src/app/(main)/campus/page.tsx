@@ -11,6 +11,7 @@ import { AcademicYearFilter } from '@/components/AcademicYearFilter'
 // Imports at top
 
 import { CampusAnalyticsView } from '@/components/campus/CampusAnalyticsView'
+import { ExecutiveInsightsPanel } from '@/components/superadmin/ExecutiveInsightsPanel'
 import { getAllProgramLeads } from '@/app/superadmin-actions'
 import { ProgramLeadsTable } from '@/components/superadmin/ProgramLeadsTable'
 import { AccessibleProgressBar } from '@/components/ui/AccessibleProgressBar'
@@ -34,8 +35,10 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
     const days = params?.days ? parseInt(params.days) : 30
     const year = params?.year
 
-    const { success, stats, error } = await getCampusStats(days, year)
-    const targetsResult = await getCampusTargets()
+    const [{ success, stats, error }, targetsResult] = await Promise.all([
+        getCampusStats(days, year),
+        getCampusTargets()
+    ])
     const target = targetsResult.success ? targetsResult.target : null
 
     if (error) {
@@ -66,6 +69,7 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
                 stats={stats}
                 campusName={user.assignedCampus || 'All Campuses'}
                 currentDays={days}
+                academicYear={year || 'All'}
             />
         )
     }
@@ -284,8 +288,7 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
 
             {/* Premium Stats Grid - Library Component */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-gray-500 font-bold text-sm uppercase tracking-wider">Total Students</h3>
                             <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
@@ -331,7 +334,6 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
                         </div>
                     </div>
                 </div>
-            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2">
@@ -390,6 +392,12 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
                     </div>
                 </div>
             </div>
+
+            <ExecutiveInsightsPanel
+                campus={user.assignedCampus || 'all'}
+                academicYear={year || 'All'}
+                referralsBasePath="/campus/referrals"
+            />
         </div>
     )
 }

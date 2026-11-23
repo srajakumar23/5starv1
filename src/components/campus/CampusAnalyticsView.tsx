@@ -1,17 +1,26 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, TrendingUp, Activity } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, TrendingUp, Activity, Calendar } from 'lucide-react'
 import { DateRangeSelector } from '@/app/(main)/campus/date-range-selector'
+import { AcademicYearFilter } from '@/components/AcademicYearFilter'
+
+const ExecutiveInsightsPanel = dynamic(
+    () => import('@/components/superadmin/ExecutiveInsightsPanel').then(m => m.ExecutiveInsightsPanel),
+    { ssr: false, loading: () => <div className="h-96 w-full animate-pulse bg-white rounded-[32px] border border-gray-100" /> }
+)
 
 interface CampusAnalyticsViewProps {
     stats: any
     campusName: string
     currentDays: number
+    academicYear?: string
 }
 
-export function CampusAnalyticsView({ stats, campusName, currentDays }: CampusAnalyticsViewProps) {
+export function CampusAnalyticsView({ stats, campusName, currentDays, academicYear = 'All' }: CampusAnalyticsViewProps) {
+    const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' })
 
     // Helper for comparison percentages
     const getChange = (current: number, previous: number) => {
@@ -26,11 +35,9 @@ export function CampusAnalyticsView({ stats, campusName, currentDays }: CampusAn
     const leadChange = getChange(stats?.newReferrals || 0, stats?.prevNewReferrals || 0)
     const admissionChange = getChange(stats?.confirmedAdmissions || 0, stats?.prevConfirmedAdmissions || 0)
 
-    const conversionRate = stats?.leadsNew ?
-        (((stats.leadsConfirmed || 0) / (stats.leadsNew + stats.leadsFollowup + stats.leadsConfirmed || 1) * 100).toFixed(1)) : 0
-
-    const engagementRate = stats?.leadsNew ?
-        (((stats.leadsFollowup || 0) / (stats.leadsNew + stats.leadsFollowup + stats.leadsConfirmed) * 100).toFixed(0)) : 0
+    const totalFunnel = (stats?.leadsNew || 0) + (stats?.leadsFollowup || 0) + (stats?.leadsConfirmed || 0)
+    const conversionRate = totalFunnel > 0 ? (((stats?.leadsConfirmed || 0) / totalFunnel) * 100).toFixed(1) : '0'
+    const engagementRate = totalFunnel > 0 ? (((stats?.leadsFollowup || 0) / totalFunnel) * 100).toFixed(0) : '0'
 
     return (
         <div className="space-y-6 animate-fade-in text-gray-900">
@@ -45,7 +52,36 @@ export function CampusAnalyticsView({ stats, campusName, currentDays }: CampusAn
                     </h1>
                     <p className="text-gray-500 mt-1">Strategic overview for {campusName || 'All Campuses'}</p>
                 </div>
-                <DateRangeSelector currentDays={currentDays} />
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 shadow-sm">
+                        <Calendar size={14} className="text-gray-400" />
+                        <input
+                            type="date"
+                            className="bg-transparent text-[11px] font-bold text-gray-700 focus:outline-none w-24"
+                            value={dateRange.start}
+                            onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                            suppressHydrationWarning
+                        />
+                        <span className="text-gray-300">-</span>
+                        <input
+                            type="date"
+                            className="bg-transparent text-[11px] font-bold text-gray-700 focus:outline-none w-24"
+                            value={dateRange.end}
+                            onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                            suppressHydrationWarning
+                        />
+                        {(dateRange.start || dateRange.end) && (
+                            <button
+                                onClick={() => setDateRange({ start: '', end: '' })}
+                                className="text-[10px] font-black uppercase text-red-500 hover:text-red-700 pl-1"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
+                    <AcademicYearFilter />
+                    <DateRangeSelector currentDays={currentDays} />
+                </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -174,6 +210,14 @@ export function CampusAnalyticsView({ stats, campusName, currentDays }: CampusAn
                     </div>
                 </div>
             </div>
+
+            <ExecutiveInsightsPanel
+                campus={campusName || 'all'}
+                academicYear={academicYear || 'All'}
+                startDate={dateRange.start || undefined}
+                endDate={dateRange.end || undefined}
+                referralsBasePath="/campus/referrals"
+            />
         </div>
     )
 }
