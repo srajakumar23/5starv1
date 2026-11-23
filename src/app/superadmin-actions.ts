@@ -301,17 +301,6 @@ export async function getUserGrowthTrend(timeRange: '7d' | '30d' | 'all' = '30d'
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
 
-    const users = await withRetry(() => prisma.user.findMany({
-        where: {
-            createdAt: {
-                gte: startDate
-            }
-        },
-        select: {
-            createdAt: true
-        }
-    }))
-
     // Group by date
     const trendMap = new Map<string, number>()
 
@@ -323,10 +312,16 @@ export async function getUserGrowthTrend(timeRange: '7d' | '30d' | 'all' = '30d'
         trendMap.set(dateStr, 0)
     }
 
-    users.forEach(u => {
-        const dateStr = u.createdAt.toISOString().split('T')[0]
-        if (trendMap.has(dateStr)) {
-            trendMap.set(dateStr, (trendMap.get(dateStr) || 0) + 1)
+    const rows = await withRetry(() => prisma.$queryRaw<Array<{ day: string; count: number }>>`
+        SELECT TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') as day, COUNT(*)::int as count
+        FROM "User"
+        WHERE "createdAt" >= ${startDate}
+        GROUP BY 1
+    `)
+
+    rows.forEach(r => {
+        if (trendMap.has(r.day)) {
+            trendMap.set(r.day, r.count)
         }
     })
 
@@ -460,13 +455,15 @@ export async function getCampusComparison(timeRange: '7d' | '30d' | 'all' = 'all
             currentBenefitsData,
             prevBenefitsData
         ] = await Promise.all([
-            prisma.referralLead.findMany({
-                where: { campus: { not: null }, ...dateFilter, ...yearLeadFilter },
-                select: {
-                    campus: true,
-                    user: { select: { role: true } }
-                }
-            }),
+            prisma.$queryRaw<Array<{ campus: string; role: string; cnt: number }>>`
+                SELECT r."campus" as campus, u."role"::text as role, COUNT(*)::int as cnt
+                FROM "ReferralLead" r
+                JOIN "User" u ON u."userId" = r."userId"
+                WHERE r."campus" IS NOT NULL
+                ${dateFilter.createdAt ? Prisma.sql`AND r."createdAt" >= ${dateFilter.createdAt.gte}` : Prisma.empty}
+                ${academicYear && academicYear !== 'All' ? Prisma.sql`AND r."admittedYear" = ${academicYear}` : Prisma.empty}
+                GROUP BY r."campus", u."role"
+            `,
             prisma.student.groupBy({
                 by: ['campusId'],
                 where: yearStudentFilter,
@@ -552,11 +549,11 @@ export async function getCampusComparison(timeRange: '7d' | '30d' | 'all' = 'all
 
         const roleStats = new Map<string, Map<string, number>>();
         roleDistributionData.forEach(item => {
-            if (item.campus && item.user?.role) {
+            if (item.campus && item.role) {
                 const normCampus = normalizeCampus(item.campus);
                 if (!roleStats.has(normCampus)) roleStats.set(normCampus, new Map());
                 const m = roleStats.get(normCampus)!;
-                m.set(item.user.role, (m.get(item.user.role) || 0) + 1);
+                m.set(item.role, (m.get(item.role) || 0) + item.cnt);
             }
         });
 
@@ -678,7 +675,8 @@ export async function getAllUsers(options: {
                     childCampusId: true,
                     benefitStatus: true,
                     yearFeeBenefitPercent: true,
-                    longTermBenefitPercent: true
+                    longTermBenefitPercent: true,
+                    registrationSource: true
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,

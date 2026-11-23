@@ -5,7 +5,7 @@ import { cache } from 'react'
 
 import { mapAdminRole, mapUserRole } from './enum-utils'
 
-export const getCurrentUser = cache(async (options: { includeCount?: boolean } = {}) => {
+const getCurrentUserCached = cache(async (includeCount: boolean) => {
     const session: any = await getSession()
     if (!session || !session.userId) return null
 
@@ -81,7 +81,7 @@ export const getCurrentUser = cache(async (options: { includeCount?: boolean } =
             }
             // Calculate current year confirmed referrals for Dual Track Benefit display
             let currentYearCount = 0
-            if (options.includeCount) {
+            if (includeCount) {
                 const currentYearStart = new Date(new Date().getFullYear(), 0, 1)
                 currentYearCount = await withRetry(() => prisma.referralLead.count({
                     where: {
@@ -113,3 +113,7 @@ export const getCurrentUser = cache(async (options: { includeCount?: boolean } =
 
     return null
 })
+
+export async function getCurrentUser(options: { includeCount?: boolean } = {}) {
+    return getCurrentUserCached(Boolean(options.includeCount))
+}

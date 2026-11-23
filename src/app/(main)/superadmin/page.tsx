@@ -128,7 +128,6 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
     if (initialView === 'home' || initialView === 'analytics') {
         analyticsPromise = getSystemAnalytics('all', selectedYear, selectedSource)
         campusComparisonPromise = getCampusComparison('all', selectedYear, selectedSource)
-        marketingAssetsPromise = getAdminMarketingAssets() // Maybe?
         growthTrendPromise = getUserGrowthTrend()
         deepTrendsPromise = import('@/app/analytics-trends-actions').then(m => m.getAnalyticsTrends())
         // Pre-fetch users for search? checking getAllUsers... it's heavy.

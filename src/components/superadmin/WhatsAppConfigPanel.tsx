@@ -10,6 +10,7 @@ import dynamic from 'next/dynamic'
 import { WhatsAppLogTable } from './WhatsAppLogTable'
 import RuleBuilderPanel from './RuleBuilderPanel'
 import { RolePermissions } from '@/types'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 const AutomationInsights = dynamic(() => import('@/components/superadmin/AutomationInsights'), { 
     ssr: false, 
@@ -30,6 +31,7 @@ export default function WhatsAppConfigPanel() {
     const [saving, setSaving] = useState<number | null>(null)
     const [showAddForm, setShowAddForm] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
+    const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null)
     const [newConfig, setNewConfig] = useState({ eventKey: '', templateName: '', templateBody: '', description: '', requiredVariablesCount: 2 })
 
     const fetchStats = async () => {
@@ -103,8 +105,14 @@ export default function WhatsAppConfigPanel() {
         setIsCreating(false)
     }
 
-    const handleDelete = async (id: number) => {
-        if (!confirm('Are you sure you want to delete this mapping? This action cannot be undone.')) return
+    const handleDelete = (id: number) => {
+        setDeleteTargetId(id)
+    }
+
+    const confirmDelete = async () => {
+        if (deleteTargetId === null) return
+        const id = deleteTargetId
+        setDeleteTargetId(null)
         const res = await deleteWhatsAppConfig(id)
         if (res.success) {
             toast.success('Mapping deleted successfully')
@@ -356,6 +364,16 @@ export default function WhatsAppConfigPanel() {
                     </div>
                 </div>
             )}
+
+            <ConfirmDialog
+                isOpen={deleteTargetId !== null}
+                title="Delete Mapping?"
+                description="Are you sure you want to delete this mapping? This action cannot be undone."
+                confirmText="Yes, Delete"
+                variant="danger"
+                onConfirm={confirmDelete}
+                onCancel={() => setDeleteTargetId(null)}
+            />
         </div>
     )
 }

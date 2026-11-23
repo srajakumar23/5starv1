@@ -10,6 +10,6 @@ export const outfit = localFont({
     ],
     display: "swap",
     variable: "--font-outfit",
-    adjustFontFallback: false,
-    preload: false,
+    adjustFontFallback: "Arial",
+    preload: true,
 });

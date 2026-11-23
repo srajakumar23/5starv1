@@ -44,3 +44,19 @@ service-account.json
 next-env.d.ts
 
 /src/generated/prisma
+
+# Local dumps, diagnostics & mobile build artifacts
+/*.aab
+/dev.db
+/backup_data.json
+/cf_error.json
+/ghost_users.json
+/darshni_log_deep.json
+/debug_*.json
+/debug_*.log
+/debug_*.txt
+/audit-*.json
+/audit_*.txt
+/*_diag.txt
+/campaign_*_report.csv
+/485538_*.csv

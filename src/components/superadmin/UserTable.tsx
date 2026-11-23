@@ -347,6 +347,7 @@ export function UserTable({
 
     const [isExporting, setIsExporting] = useState(false)
     const [showExportModal, setShowExportModal] = useState(false)
+    const [showLargeExportConfirm, setShowLargeExportConfirm] = useState(false)
     const [exportDateRange, setExportDateRange] = useState({
         from: '',
         to: ''
@@ -385,21 +386,19 @@ export function UserTable({
         source: true
     })
 
-    const handleExport = async () => {
+    const handleExport = async (skipLargeWarning: boolean = false) => {
+        const totalRecords = pagination?.totalCount ?? users.length
+        // --- SAFETY GUARD: Large Dataset Warning ---
+        if (!skipLargeWarning && totalRecords > 5000 && !exportDateRange.from && !exportDateRange.to && campusFilterValue.length === 0) {
+            setShowLargeExportConfirm(true)
+            return
+        }
+
         setIsExporting(true)
         // Give UI a moment to show loading state
         setTimeout(async () => {
             try {
                 const selectedYear = searchParams.get('year')
-                const totalRecords = pagination?.totalCount ?? users.length
-                
-                // --- SAFETY GUARD: Large Dataset Warning ---
-                if (totalRecords > 5000 && !exportDateRange.from && !exportDateRange.to && campusFilterValue.length === 0) {
-                    if (!confirm(`Warning: You are attempting to export ${totalRecords} records. This may take a moment or timeout in some browsers. Would you like to proceed anyway?\n\nTip: Use date or campus filters to reduce export size.`)) {
-                        setIsExporting(false)
-                        return
-                    }
-                }
 
                 const exportData = await getUsersForExport({
                     academicYear: selectedYear || 'All',
@@ -967,7 +966,7 @@ export function UserTable({
                                 Cancel
                             </button>
                             <button
-                                onClick={handleExport}
+                                onClick={() => handleExport(false)}
                                 disabled={isExporting}
                                 className={`flex-1 py-3 bg-red-600 text-white font-bold text-sm rounded-xl shadow-lg shadow-red-200 hover:shadow-red-300 transition-all flex items-center justify-center gap-2 ${isExporting ? 'opacity-80 cursor-wait' : 'hover:-translate-y-0.5'}`}
                             >
@@ -1039,6 +1038,19 @@ export function UserTable({
                 onConfirm={executeBulkAction}
                 onCancel={() => setBulkConfirmation({ isOpen: false, action: null })}
                 isLoading={isProcessing}
+            />
+
+            <ConfirmDialog
+                isOpen={showLargeExportConfirm}
+                title="Large Export Warning"
+                description={`You are attempting to export ${pagination?.totalCount ?? users.length} records. This may take a moment in your browser. Tip: Use date or campus filters to reduce export size.`}
+                confirmText="Proceed Anyway"
+                variant="warning"
+                onConfirm={() => {
+                    setShowLargeExportConfirm(false)
+                    handleExport(true)
+                }}
+                onCancel={() => setShowLargeExportConfirm(false)}
             />
         </>
     )

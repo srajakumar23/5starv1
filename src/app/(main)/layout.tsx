@@ -167,14 +167,14 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         ? "bg-[#0f172a]"
         : "bg-slate-50"
     const themeGlassClass = isDarkTheme
-        ? "bg-[#0f172a]/95 backdrop-blur-[20px]"
-        : "bg-white/85 backdrop-blur-[20px]"
+        ? "bg-[#0f172a]/95"
+        : "bg-slate-50/92"
 
     return (
         <div className={`flex min-h-screen text-text-primary relative ${isDarkTheme ? 'dark bg-[#0f172a]' : 'bg-slate-50'}`}>
             {/* Architectural Background Stack */}
             <div className="fixed inset-0 z-0 pointer-events-none">
-                <div className={`absolute inset-0 bg-[url('/bg-pattern.webp')] bg-cover bg-fixed bg-center opacity-[0.4] ${isDarkTheme ? 'invert opacity-[0.05]' : ''}`}></div>
+                <div className={`absolute inset-0 bg-[url('/bg-pattern.webp')] bg-cover bg-center opacity-[0.4] ${isDarkTheme ? 'invert opacity-[0.05]' : ''}`}></div>
                 <div className={`absolute inset-0 ${themeGlassClass}`}></div>
             </div>
 

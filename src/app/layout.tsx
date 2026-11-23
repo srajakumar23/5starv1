@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { outfit } from "@/lib/fonts";
-import "./fonts.css";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -15,8 +14,6 @@ import type { Viewport } from 'next'
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   themeColor: '#0f172a',
   viewportFit: 'cover',
 }
@@ -70,16 +67,15 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  let settings;
-  try {
-    settings = await getSystemSettings();
-  } catch (error) {
-    console.error('RootLayout: Failed to load settings', error);
-    settings = { maintenanceMode: false }; // Fallback
-  }
+  const [settings, user, headersList] = await Promise.all([
+    getSystemSettings().catch((error) => {
+      console.error('RootLayout: Failed to load settings', error);
+      return { maintenanceMode: false };
+    }),
+    getCurrentUser().catch(() => null),
+    headers(),
+  ]);
 
-  const user = await getCurrentUser().catch(() => null);
-  const headersList = await headers();
   const pathname = headersList.get("x-invoke-path") || "";
 
   // Maintenance Mode Logic

@@ -51,6 +51,7 @@ export function ReferralDetailPanel({
     const [standardFees, setStandardFees] = useState<{ otp: number | null, wotp: number | null }>({ otp: null, wotp: null })
     const [fetchingFees, setFetchingFees] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const [revertDialog, setRevertDialog] = useState<'confirmation' | 'rejection' | null>(null)
     const [availableGrades, setAvailableGrades] = useState<string[]>([...GRADES])
     const [fetchingGrades, setFetchingGrades] = useState(false)
 
@@ -292,9 +293,12 @@ export function ReferralDetailPanel({
 
     const currentStep = getStatusStep(referral.leadStatus)
 
-    const handleRevert = async () => {
-        if (!confirm('Are you sure you want to revert this confirmation? The status will be reset to New and the ambassador benefit count will be decreased.')) return
+    const handleRevert = () => {
+        setRevertDialog('confirmation')
+    }
 
+    const executeRevertConfirmation = async () => {
+        setRevertDialog(null)
         setLoading(true)
         try {
             const res = await revertReferralConfirmation(referral.leadId)
@@ -311,9 +315,12 @@ export function ReferralDetailPanel({
         }
     }
 
-    const handleRevertRejection = async () => {
-        if (!confirm('Are you sure you want to revert this rejection? The status will be reset to New.')) return
+    const handleRevertRejection = () => {
+        setRevertDialog('rejection')
+    }
 
+    const executeRevertRejection = async () => {
+        setRevertDialog(null)
         setLoading(true)
         try {
             const res = await revertReferralRejection(referral.leadId)
@@ -1089,6 +1096,21 @@ export function ReferralDetailPanel({
                 variant="danger"
                 onConfirm={confirmDelete}
                 onCancel={() => setShowDeleteConfirm(false)}
+            />
+
+            <ConfirmDialog
+                isOpen={revertDialog !== null}
+                title={revertDialog === 'confirmation' ? 'Revert Confirmation?' : 'Revert Rejection?'}
+                description={
+                    revertDialog === 'confirmation'
+                        ? 'Are you sure you want to revert this confirmation? The status will be reset to New and the ambassador benefit count will be decreased.'
+                        : 'Are you sure you want to revert this rejection? The status will be reset to New.'
+                }
+                confirmText="Yes, Revert"
+                variant="warning"
+                isLoading={loading}
+                onConfirm={revertDialog === 'confirmation' ? executeRevertConfirmation : executeRevertRejection}
+                onCancel={() => setRevertDialog(null)}
             />
         </AnimatePresence>
     )

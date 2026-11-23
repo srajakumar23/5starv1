@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 }
 
 export default async function DashboardPage() {
-    const user = await getCurrentUser({ includeCount: true })
+    const user = await getCurrentUser()
     if (!user) redirect('/')
 
     // Admin redirects
@@ -26,7 +26,17 @@ export default async function DashboardPage() {
     if (user.role.includes('Admin') && user.role !== 'Admission Admin') redirect('/admin')
 
     const userData = user as any
-    const [referrals, dynamicStudentFee, slabsResult, activeYears, settlements] = await Promise.all([
+    const [
+        referrals,
+        dynamicStudentFee,
+        slabsResult,
+        activeYears,
+        settlements,
+        systemSettings,
+        monthStats,
+        notificationsResult,
+        programsResult
+    ] = await Promise.all([
         getMyReferrals(),
         getDynamicFeeForUser(),
         getBenefitSlabs(),
@@ -34,7 +44,11 @@ export default async function DashboardPage() {
         prisma.settlement.findMany({
             where: { userId: userData.userId },
             include: { referralLead: true }
-        })
+        }),
+        getSystemSettings(),
+        getMyComparisonStats(),
+        import('@/app/notification-actions').then(m => m.getNotifications(1, 10)),
+        import('@/app/program-actions').then(m => m.getActivePrograms())
     ])
 
     const currentYearRecord = activeYears.find(y => y.isCurrent) || activeYears[0]
@@ -48,14 +62,15 @@ export default async function DashboardPage() {
 
     // Fetch Grade-1 Fees for Cash Benefit Calculations (Dashboard needs this too)
     const campusIds = Array.from(new Set(referrals.map((r: any) => r.campusId).filter(Boolean))) as number[]
-    // We need Grade-1 Fees for these campuses to be accurate across both years
-    const grade1Fees = await prisma.gradeFee.findMany({
-        where: {
-            campusId: { in: campusIds },
-            grade: { in: ['Grade 1', 'Grade - 1', '1', 'I'] },
-            academicYear: { in: activeYearStrings }
-        }
-    })
+    const grade1Fees = campusIds.length > 0 && activeYearStrings.length > 0
+        ? await prisma.gradeFee.findMany({
+            where: {
+                campusId: { in: campusIds },
+                grade: { in: ['Grade 1', 'Grade - 1', '1', 'I'] },
+                academicYear: { in: activeYearStrings }
+            }
+        })
+        : []
     const campusFeeMap: Record<string, Record<number, { otp: number, wotp: number }>> = {}
 
     // Initialize years in map
@@ -73,9 +88,6 @@ export default async function DashboardPage() {
 
     // Encrypt referral code for security
     const encryptedCode = encryptReferralCode(userData.referralCode)
-
-    // Get System Settings for Referral Templates
-    const systemSettings = await getSystemSettings()
 
     // Short URL format - cleaner and more secure
     const referralLink = `${baseUrl}/r/${encryptedCode}`
@@ -97,11 +109,6 @@ export default async function DashboardPage() {
     // Build WhatsApp URL
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`
 
-
-    // Get month stats for trends
-    const monthStats = await getMyComparisonStats()
-
-
     // Serialize Campus Fee Map
     const campusFeeMapObj: Record<string, Record<number, { otp: number, wotp: number }>> = {}
     Object.keys(campusFeeMap).forEach(k => {
@@ -110,12 +117,6 @@ export default async function DashboardPage() {
 
     // Prepare User Object for Client
     const currentAccountStatus = userData.status || 'Pending'
-
-    console.log('DEBUG: Dashboard User Data:', {
-        status: currentAccountStatus,
-        benefitStatus: userData.benefitStatus,
-        role: userData.role
-    })
 
     const userForClient: any = {
         fullName: userData.fullName,
@@ -168,12 +169,8 @@ export default async function DashboardPage() {
         } : null
     }))
 
-    // Fetch Notifications
-    const { notifications, unreadCount } = await import('@/app/notification-actions').then(m => m.getNotifications(1, 10))
-
-    // Fetch Active External Programs
-    const { getActivePrograms } = await import('@/app/program-actions')
-    const { programs } = await getActivePrograms()
+    const { notifications, unreadCount } = notificationsResult
+    const { programs } = programsResult
 
     return (
         <DashboardClient
