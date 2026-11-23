@@ -18,9 +18,14 @@ function scrubMetadata(data: any): any {
     for (const key in scrubbed) {
         // Case-insensitive check for sensitive keys
         const isSensitive = SENSITIVE_KEYS.some(sk => key.toLowerCase().includes(sk.toLowerCase()))
+        const isImageBlob =
+            key.toLowerCase() === 'profileimage' ||
+            (typeof scrubbed[key] === 'string' && scrubbed[key].startsWith('data:image/'))
 
         if (isSensitive) {
             scrubbed[key] = '***MASKED***'
+        } else if (isImageBlob) {
+            scrubbed[key] = '[IMAGE_OMITTED]'
         } else if (typeof scrubbed[key] === 'object') {
             scrubbed[key] = scrubMetadata(scrubbed[key])
         }

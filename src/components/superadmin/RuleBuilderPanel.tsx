@@ -6,17 +6,17 @@ import { toast } from 'sonner'
 import {
     AutomationRuleData,
     getAutomationRules,
+    getRuleBuilderBootstrap,
     createAutomationRule,
     updateAutomationRule,
     deleteAutomationRule,
     testAutomationRule
 } from '@/app/automation-rule-actions'
-import { getWhatsAppConfigs, WhatsAppConfigData } from '@/app/whatsapp-config-actions'
-import { getCampusNames } from '@/app/campus-actions'
+import { WhatsAppConfigData } from '@/app/whatsapp-config-actions'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PromptDialog } from '@/components/ui/PromptDialog'
 
-export default function RuleBuilderPanel() {
+export default function RuleBuilderPanel({ initialMappings }: { initialMappings?: WhatsAppConfigData[] } = {}) {
     const [rules, setRules] = useState<AutomationRuleData[]>([])
     const [availableCampuses, setAvailableCampuses] = useState<{id: number; campusName: string}[]>([])
     const [availableMappings, setAvailableMappings] = useState<WhatsAppConfigData[]>([])
@@ -77,23 +77,28 @@ export default function RuleBuilderPanel() {
 
     const fetchInitialData = async () => {
         setLoading(true)
-        const [rulesRes, campusRes, mappingsRes] = await Promise.all([
-            getAutomationRules(),
-            getCampusNames(),
-            getWhatsAppConfigs()
-        ])
-        
-        if (rulesRes.success && rulesRes.data) {
-            setRules(rulesRes.data)
+        const hasInitialMappings = Boolean(initialMappings && initialMappings.length > 0)
+        if (hasInitialMappings && initialMappings) {
+            setAvailableMappings(initialMappings.filter(m => m.isEnabled))
         }
-        if (campusRes.success && campusRes.campuses) {
-            setAvailableCampuses(campusRes.campuses)
-        }
-        if (mappingsRes && Array.isArray(mappingsRes)) {
-            setAvailableMappings(mappingsRes.filter(m => m.isEnabled))
+
+        const res = await getRuleBuilderBootstrap(!hasInitialMappings)
+
+        if (res.success) {
+            setRules(res.rules || [])
+            setAvailableCampuses(res.campuses || [])
+            if (!hasInitialMappings && Array.isArray(res.mappings)) {
+                setAvailableMappings(res.mappings.filter((m: WhatsAppConfigData) => m.isEnabled))
+            }
         }
         setLoading(false)
     }
+
+    useEffect(() => {
+        if (initialMappings && initialMappings.length > 0) {
+            setAvailableMappings(initialMappings.filter(m => m.isEnabled))
+        }
+    }, [initialMappings])
 
     useEffect(() => {
         fetchInitialData()

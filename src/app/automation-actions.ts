@@ -18,7 +18,7 @@ export interface WhatsAppAnalytics {
 
 /**
  * Fetches WhatsApp automation analytics.
- * Optimized to use count/groupBy and minimal data fetching.
+ * Optimized to use count/groupBy and SQL daily aggregation.
  */
 export async function getWhatsAppAnalytics(days: number = 7): Promise<WhatsAppAnalytics> {
     const user = await getCurrentUser()
@@ -44,11 +44,14 @@ export async function getWhatsAppAnalytics(days: number = 7): Promise<WhatsAppAn
                 _count: { _all: true },
                 where: { createdAt: { gte: startDate } }
             }),
-            db.whatsAppLog.findMany({
-                where: { createdAt: { gte: startDate } },
-                select: { createdAt: true, type: true },
-                orderBy: { createdAt: 'asc' }
-            })
+            prisma.$queryRaw<Array<{ day: string; sent: number; chatbot: number }>>`
+                SELECT TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') as day,
+                       COUNT(*)::int as sent,
+                       COUNT(*) FILTER (WHERE "type" = 'CHATBOT')::int as chatbot
+                FROM "WhatsAppLog"
+                WHERE "createdAt" >= ${startDate}
+                GROUP BY 1
+            `
         ])
 
         // Process Daily Trends
@@ -60,12 +63,11 @@ export async function getWhatsAppAnalytics(days: number = 7): Promise<WhatsAppAn
             trendMap.set(dateStr, { date: dateStr, sent: 0, chatbot: 0 })
         }
 
-        dailyStats.forEach((log: { createdAt: Date, type: string }) => {
-            const dateStr = log.createdAt.toISOString().split('T')[0]
-            const entry = trendMap.get(dateStr)
+        dailyStats.forEach((row) => {
+            const entry = trendMap.get(row.day)
             if (entry) {
-                entry.sent++
-                if (log.type === 'CHATBOT') entry.chatbot++
+                entry.sent = row.sent
+                entry.chatbot = row.chatbot
             }
         })
 

@@ -352,7 +352,13 @@ export async function runCampaign(id: number) {
             }
             
             console.log(`[CampaignTrigger] Firing worker at: ${baseUrl}/api/cron/process-jobs`)
-            fetch(`${baseUrl}/api/cron/process-jobs`, { method: 'GET', cache: 'no-store' })
+            fetch(`${baseUrl}/api/cron/process-jobs`, {
+                method: 'GET',
+                cache: 'no-store',
+                headers: process.env.CRON_SECRET
+                    ? { authorization: `Bearer ${process.env.CRON_SECRET}` }
+                    : undefined
+            })
                 .catch(err => console.error('[CampaignTrigger] Worker fetch failed:', err.message))
         } catch (e) {
             // Ignore trigger errors

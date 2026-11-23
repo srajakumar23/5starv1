@@ -6,6 +6,11 @@ export const dynamic = 'force-dynamic' // Ensure this route is never cached
 export const maxDuration = 60 // Allow longer execution time if possible (Vercel specific)
 
 export async function GET(request: Request) {
+    const authHeader = request.headers.get('authorization')
+    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        return new NextResponse('Unauthorized', { status: 401 })
+    }
+
     // 1. Fetch available job
     // We use a transaction or simple update to "lock" the job
     // Ideally: UPDATE Job SET status='PROCESSING' WHERE id = (SELECT id FROM Job WHERE status='PENDING' ORDER BY createdAt LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *
@@ -115,7 +120,13 @@ export async function GET(request: Request) {
             }
 
             // Trigger next run (Fire-and-forget)
-            fetch(`${baseUrl}/api/cron/process-jobs`, { method: 'GET', cache: 'no-store' }).catch(err => console.error('[JobProcessor] Failed to trigger next job', err))
+            fetch(`${baseUrl}/api/cron/process-jobs`, {
+                method: 'GET',
+                cache: 'no-store',
+                headers: process.env.CRON_SECRET
+                    ? { authorization: `Bearer ${process.env.CRON_SECRET}` }
+                    : undefined
+            }).catch(err => console.error('[JobProcessor] Failed to trigger next job', err))
         }
 
         return NextResponse.json({ success: true, jobId: job.id, nextPending: !!nextJob })

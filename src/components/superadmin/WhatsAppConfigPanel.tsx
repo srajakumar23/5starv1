@@ -7,10 +7,18 @@ import { getWhatsAppConfigs, updateWhatsAppConfig, createWhatsAppConfig, seedDef
 import { getWhatsAppAnalytics, WhatsAppAnalytics } from '@/app/automation-actions'
 import { generateWhatsAppLogReport } from '@/app/report-actions'
 import dynamic from 'next/dynamic'
-import { WhatsAppLogTable } from './WhatsAppLogTable'
-import RuleBuilderPanel from './RuleBuilderPanel'
 import { RolePermissions } from '@/types'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+
+const WhatsAppLogTable = dynamic(() => import('./WhatsAppLogTable').then(m => m.WhatsAppLogTable), {
+    ssr: false,
+    loading: () => <div className="h-72 animate-pulse bg-slate-50 rounded-2xl border border-slate-100" />
+})
+
+const RuleBuilderPanel = dynamic(() => import('./RuleBuilderPanel'), {
+    ssr: false,
+    loading: () => <div className="h-96 animate-pulse bg-slate-50 rounded-3xl border border-slate-100" />
+})
 
 const AutomationInsights = dynamic(() => import('@/components/superadmin/AutomationInsights'), { 
     ssr: false, 
@@ -60,8 +68,13 @@ export default function WhatsAppConfigPanel() {
 
     useEffect(() => {
         fetchConfigs()
-        fetchStats()
     }, [])
+
+    useEffect(() => {
+        if (activeTab === 'logs' && !stats && !loadingStats) {
+            fetchStats()
+        }
+    }, [activeTab, stats, loadingStats])
 
     const handleUpdate = async (id: number, templateName: string, templateBody: string | null, description: string, reqVars: number, isEnabled: boolean) => {
         setSaving(id)
@@ -218,7 +231,7 @@ export default function WhatsAppConfigPanel() {
             </div>
 
             {activeTab === 'rules' ? (
-                <RuleBuilderPanel />
+                <RuleBuilderPanel initialMappings={configs} />
             ) : activeTab === 'logs' ? (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
                     {/* Insights move here */}

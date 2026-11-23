@@ -6,10 +6,14 @@ import { Rocket, Mail, CheckCircle2, AlertTriangle, Loader2, Users, Clock, Zap, 
 import { triggerReengagementCampaign, getEngagementStats } from '@/app/engagement-actions'
 import { triggerCampusEnforcementBroadcast, getCampusEnforcementStats } from '@/app/campus-enforcement-actions'
 import { toast } from 'sonner'
-import { CampaignManager } from './CampaignManager'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { motion, AnimatePresence } from 'framer-motion'
 import { RolePermissions } from '@/types'
+
+const CampaignManager = dynamic(() => import('./CampaignManager').then(m => m.CampaignManager), {
+    ssr: false,
+    loading: () => <div className="h-96 w-full animate-pulse bg-gray-50 rounded-3xl border border-gray-100" />
+})
 
 const WhatsAppConfigPanel = dynamic(() => import('./WhatsAppConfigPanel'), { 
     ssr: false,
@@ -43,9 +47,15 @@ export function EngagementPanel({ permissions }: EngagementPanelProps) {
 
     useEffect(() => {
         fetchStats()
-        const interval = setInterval(fetchStats, 10000) // Poll for job status
-        return () => clearInterval(interval)
     }, [])
+
+    const hasActiveJobs = Boolean(stats?.activeJobs && Object.keys(stats.activeJobs).length > 0)
+
+    useEffect(() => {
+        if (activeTab !== 'overview' || !hasActiveJobs) return
+        const interval = setInterval(fetchStats, 10000) // Poll only while watching active jobs on overview
+        return () => clearInterval(interval)
+    }, [activeTab, hasActiveJobs])
 
     // Confirmation State
     const [confirmState, setConfirmState] = useState<{

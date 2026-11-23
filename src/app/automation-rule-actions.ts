@@ -40,6 +40,41 @@ export async function getAutomationRules() {
     }
 }
 
+export async function getRuleBuilderBootstrap(includeMappings: boolean = true) {
+    try {
+        const user = await getCurrentUser()
+        if (!user || (user.role !== 'Super Admin' && !user.role.includes('Admin'))) {
+            return { success: false, error: 'Unauthorized', rules: [], campuses: [], mappings: [] }
+        }
+
+        const [rules, campuses, mappings] = await Promise.all([
+            prisma.automationRule.findMany({
+                orderBy: { createdAt: 'desc' }
+            }),
+            prisma.campus.findMany({
+                select: { id: true, campusName: true },
+                orderBy: { campusName: 'asc' }
+            }),
+            includeMappings
+                ? prisma.whatsAppConfig.findMany({
+                    where: { isEnabled: true },
+                    orderBy: { eventKey: 'asc' }
+                })
+                : Promise.resolve([])
+        ])
+
+        return {
+            success: true,
+            rules,
+            campuses,
+            mappings: mappings as any[]
+        }
+    } catch (error) {
+        console.error("Failed to bootstrap rule builder:", error)
+        return { success: false, error: 'Failed to load rule builder data', rules: [], campuses: [], mappings: [] }
+    }
+}
+
 export async function createAutomationRule(data: Partial<AutomationRuleData>) {
     try {
         await checkSuperAdmin()
