@@ -8,7 +8,7 @@ import { registerSchema, mobileSchema } from "@/lib/validators"
 import { z } from "zod"
 import bcrypt from "bcryptjs"
 import { hasPermission, getMyPermissions, canPerformAction, getScopeFilter, getPermissionScope } from "@/lib/permission-service"
-import { generateSmartReferralCode } from "@/lib/referral-service"
+import { generateSmartReferralCode, ensureUserReferralCode } from "@/lib/referral-service"
 import { UserRole, AdminRole, AccountStatus, LeadStatus, Prisma } from "@prisma/client"
 import { revalidatePath } from 'next/cache'
 import { toAdminRole, toLeadStatus, toUserRole, toAccountStatus } from "@/lib/enum-utils"
@@ -1344,6 +1344,13 @@ export async function updateUser(userId: number, data: {
             data: filteredData
         })
 
+        if (updatedUser.status === 'Active' && (!updatedUser.referralCode || updatedUser.referralCode.trim() === '')) {
+            const assignedCode = await ensureUserReferralCode(userId, updatedUser.role)
+            if (assignedCode) {
+                updatedUser.referralCode = assignedCode
+            }
+        }
+
         await logAction('UPDATE', 'user', `Updated user ${userId}`, userId.toString(), null, { previous: previousUser, next: updatedUser })
 
         revalidatePath('/superadmin/users')
@@ -1860,10 +1867,11 @@ export async function updateUserStatus(userId: number, status: AccountStatus) {
             }
         })
 
-        // Force a deep sync to ensure slab/benefit consistency
+        // Force a deep sync to ensure slab/benefit consistency and guarantee Partner ID
         if (isActivating) {
             const { syncUserStats } = await import('@/app/sync-actions')
             await syncUserStats(userId)
+            await ensureUserReferralCode(userId)
         }
 
         await logAction('UPDATE', 'user', `Updated user ${userId} status to ${status} (Manual Activation)`, userId.toString())

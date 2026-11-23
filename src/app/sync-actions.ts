@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import { logAction } from '@/lib/audit-logger'
 import { EXCLUDED_FROM_SLAB } from '@/lib/reward-constants'
+import { ensureUserReferralCode } from '@/lib/referral-service'
 
 /**
  * Centrally synchronizes a user's status based on student records and referral leads.
@@ -158,6 +159,14 @@ export async function syncUserStats(userId: number) {
             where: { userId: user.userId },
             data: updatedUserDetails
         })
+
+        // Central safety net: ensure any Active user always receives a Partner ID
+        if (updatedUser.status === 'Active' && (!updatedUser.referralCode || updatedUser.referralCode.trim() === '')) {
+            const assignedCode = await ensureUserReferralCode(updatedUser.userId, updatedUser.role)
+            if (assignedCode) {
+                updatedUser.referralCode = assignedCode
+            }
+        }
 
         // --- 4. RELOAD DATA (Auto-Sync Removed as per policy) ---
 

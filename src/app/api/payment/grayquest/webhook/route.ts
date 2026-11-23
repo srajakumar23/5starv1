@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { ensureUserReferralCode } from "@/lib/referral-service";
 
 /**
  * GrayQuest Webhook Handler
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
                         transactionId: body.transaction_id || body.payment_id || body.data?.transaction_id || undefined
                     }
                 });
+                await ensureUserReferralCode(updatedPayment.userId);
                 console.log(`[GQ WEBHOOK] User ${updatedPayment.userId} activated successfully.`);
             }
         } else {

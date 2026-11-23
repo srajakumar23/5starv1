@@ -6,6 +6,7 @@ import { logAction } from '@/lib/audit-logger'
 import { syncUserStats } from './sync-actions'
 import { revalidatePath } from 'next/cache'
 import { normalizeScientificNotation } from '@/lib/utils'
+import { ensureUserReferralCode } from '@/lib/referral-service'
 
 /**
  * Bulk Activate Users via CSV
@@ -49,6 +50,9 @@ export async function bulkActivateUsers(csvData: string) {
             }
 
             if (user.status === 'Active') {
+                if (!user.referralCode || user.referralCode.trim() === '') {
+                    await ensureUserReferralCode(user.userId, user.role)
+                }
                 alreadyActiveCount++
                 continue
             }
@@ -97,8 +101,9 @@ export async function bulkActivateUsers(csvData: string) {
                 })
             })
 
-            // 3. Sync Benefits/Records
+            // 3. Sync Benefits/Records & guarantee Partner ID
             await syncUserStats(user.userId)
+            await ensureUserReferralCode(user.userId, user.role)
             activatedCount++
         }
 

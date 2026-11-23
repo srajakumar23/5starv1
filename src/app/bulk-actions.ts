@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth-service"
 import { logAction } from "@/lib/audit-logger"
 import { revalidatePath } from 'next/cache'
 import { AccountStatus } from "@prisma/client"
+import { ensureUserReferralCode } from "@/lib/referral-service"
 
 export async function bulkUserAction(userIds: number[], action: 'activate' | 'suspend' | 'delete' | 'deactivate') {
     try {
@@ -79,8 +80,22 @@ export async function bulkUserAction(userIds: number[], action: 'activate' | 'su
             data: { status: newStatus }
         })
 
+        if (action === 'activate') {
+            const usersMissingCode = await prisma.user.findMany({
+                where: {
+                    userId: { in: userIds },
+                    OR: [{ referralCode: null }, { referralCode: '' }]
+                },
+                select: { userId: true, role: true }
+            })
+            for (const u of usersMissingCode) {
+                await ensureUserReferralCode(u.userId, u.role)
+            }
+        }
+
         await logAction('UPDATE', 'user', `Bulk ${action}d ${res.count} users`, null, null, { userIds })
         revalidatePath('/superadmin')
+        revalidatePath('/superadmin/users')
         return { success: true, count: res.count }
 
     } catch (error: any) {

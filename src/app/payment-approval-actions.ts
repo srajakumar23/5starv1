@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/auth-service'
 import { hasPermission } from '@/lib/permission-service'
 import { notifyReferralStatusChanged } from '@/lib/notification-helper'
 import { logAction } from '@/lib/audit-logger'
+import { ensureUserReferralCode } from '@/lib/referral-service'
 
 export async function approveManualPayment(orderId: string) {
     try {
@@ -56,6 +57,7 @@ export async function approveManualPayment(orderId: string) {
         // 4. CRITICAL: Perform a deep-sync to ensure benefits/slabs/student-records are all in line
         const { syncUserStats } = await import('@/app/sync-actions')
         await syncUserStats(payment.userId)
+        await ensureUserReferralCode(payment.userId, payment.user.role)
 
         // 5. Log Action
         await logAction(
@@ -69,6 +71,7 @@ export async function approveManualPayment(orderId: string) {
 
         // 5. Revalidate
         revalidatePath('/superadmin/approvals')
+        revalidatePath('/superadmin/users')
         revalidatePath('/superadmin/finance')
         revalidatePath('/dashboard')
 

@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma"
 import { BaseService, ServiceResult, AppError } from "./base-service"
 import { UserRole, AccountStatus, User } from "@prisma/client"
-import { generateSmartReferralCode } from "@/lib/referral-service"
+import { generateSmartReferralCode, ensureUserReferralCode } from "@/lib/referral-service"
 import { logAction } from "@/lib/audit-logger"
 import { EmailService } from "@/lib/email-service"
 
@@ -115,6 +115,13 @@ export class UserService extends BaseService {
                 data: { ...data }
             })
 
+            if (updatedUser.status === 'Active' && (!updatedUser.referralCode || updatedUser.referralCode.trim() === '')) {
+                const assignedCode = await ensureUserReferralCode(userId, updatedUser.role)
+                if (assignedCode) {
+                    updatedUser.referralCode = assignedCode
+                }
+            }
+
             await logAction('UPDATE', 'user', `Updated user: ${userId}`, userId.toString(), null, {
                 previous: previousUser,
                 next: updatedUser,
@@ -176,6 +183,13 @@ export class UserService extends BaseService {
                 where: { userId },
                 data: { status }
             })
+
+            if (updatedUser.status === 'Active' && (!updatedUser.referralCode || updatedUser.referralCode.trim() === '')) {
+                const assignedCode = await ensureUserReferralCode(userId, updatedUser.role)
+                if (assignedCode) {
+                    updatedUser.referralCode = assignedCode
+                }
+            }
 
             await logAction('UPDATE', 'user', `Changed user ${userId} status to ${status}`, userId.toString(), null, {
                 previousStatus: previousUser.status,

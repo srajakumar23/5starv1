@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth-service'
 import { revalidatePath } from 'next/cache'
 import { logAction } from '@/lib/audit-logger'
+import { ensureUserReferralCode } from '@/lib/referral-service'
 
 /**
  * User requests their account to be deleted
@@ -116,6 +117,8 @@ export async function rejectDeletion(userId: number) {
                 deletionRequestedAt: null
             }
         })
+
+        await ensureUserReferralCode(userId)
 
         await logAction('UPDATE', 'user', `Account deletion REJECTED for user ID ${userId}`, String(userId))
         revalidatePath('/superadmin')

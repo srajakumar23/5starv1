@@ -59,3 +59,48 @@ export async function generateSmartReferralCode(role: string, academicYear?: str
     const sequenceNumber = nextNumber.toString().padStart(5, '0')
     return `${basePrefix}${sequenceNumber}`
 }
+
+/**
+ * Ensures an Active/upgraded user has a non-empty referralCode (Partner ID).
+ * Strictly idempotent: never overwrites an existing referralCode.
+ * Retries sequentially on Prisma P2002 unique constraint collisions.
+ */
+export async function ensureUserReferralCode(userId: number, roleHint?: string): Promise<string | null> {
+    const existing = await prisma.user.findUnique({
+        where: { userId },
+        select: { referralCode: true, role: true }
+    })
+
+    if (!existing) return null
+    if (existing.referralCode && existing.referralCode.trim() !== '') {
+        return existing.referralCode
+    }
+
+    const role = roleHint || existing.role || 'Parent'
+    const MAX_RETRIES = 5
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const candidateCode = await generateSmartReferralCode(role, undefined, attempt)
+        try {
+            const result = await prisma.user.updateMany({
+                where: {
+                    userId,
+                    OR: [{ referralCode: null }, { referralCode: '' }]
+                },
+                data: { referralCode: candidateCode }
+            })
+            if (result.count > 0) return candidateCode
+
+            const refreshed = await prisma.user.findUnique({
+                where: { userId },
+                select: { referralCode: true }
+            })
+            return refreshed?.referralCode || null
+        } catch (err: any) {
+            if (err?.code === 'P2002') continue
+            throw err
+        }
+    }
+
+    throw new Error(`Failed to assign unique referralCode for userId ${userId} after ${MAX_RETRIES} attempts`)
+}
