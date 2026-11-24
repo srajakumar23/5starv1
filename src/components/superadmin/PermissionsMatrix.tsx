@@ -203,10 +203,17 @@ export function PermissionsMatrix({
                                     </div>
                                 </th>
                                 {ROLES.map(role => {
-                                    // Calculate active permissions count
+                                    // Calculate active permissions count against unique top-level modules shown in SECTIONS
                                     const rolePerms = rolePermissionsMatrix[role] || {}
-                                    const activeCount = Object.values(rolePerms).filter((p: any) => p && typeof p === 'object' && p.access === true).length
-                                    const totalCount = SECTIONS.reduce((acc, s) => acc + s.modules.filter((m: any) => !m.isSub).length, 0)
+                                    const moduleKeys = Array.from(
+                                        new Set(
+                                            SECTIONS.flatMap(s => s.modules)
+                                                .map(m => m.key)
+                                                .filter(k => !k.includes('.'))
+                                        )
+                                    )
+                                    const totalCount = moduleKeys.length
+                                    const activeCount = moduleKeys.filter(k => (rolePerms as any)[k]?.access === true).length
 
                                     return (
                                         <th

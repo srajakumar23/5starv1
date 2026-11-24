@@ -351,26 +351,34 @@ export function UserDetailPanel({ user, onClose, onEdit, onResetPassword, onView
                             </section>
 
                             {/* Operational Footer Actions */}
-                            <div className="pt-8 border-t border-gray-50 bg-white grid grid-cols-2 gap-4">
-                                <button
-                                    onClick={() => onEdit?.(user)}
-                                    className="py-4 px-6 bg-gray-900 hover:bg-black text-white rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-gray-200 transition-all flex items-center justify-center gap-2 hover:-translate-y-1 active:scale-95 italic"
-                                >
-                                    Modify Profiling
-                                </button>
-                                <button
-                                    onClick={() => onResetPassword?.(user.userId, user.fullName, 'user')}
-                                    className="py-4 px-6 bg-white border border-gray-200 text-gray-900 rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-gray-50 transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-lg active:scale-95 italic"
-                                >
-                                    <Key size={14} /> Security Reset
-                                </button>
-                                <button
-                                    onClick={() => onViewAudit?.(user)}
-                                    className="col-span-2 py-4 px-6 bg-indigo-50/50 border border-indigo-100 text-indigo-600 rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-indigo-100 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95 italic"
-                                >
-                                    <Shield size={14} /> Comprehensive Audit Node
-                                </button>
-                            </div>
+                            {(onEdit || onResetPassword || onViewAudit) && (
+                                <div className="pt-8 border-t border-gray-50 bg-white grid grid-cols-2 gap-4">
+                                    {onEdit && (
+                                        <button
+                                            onClick={() => onEdit(user)}
+                                            className="py-4 px-6 bg-gray-900 hover:bg-black text-white rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-gray-200 transition-all flex items-center justify-center gap-2 hover:-translate-y-1 active:scale-95 italic"
+                                        >
+                                            Modify Profiling
+                                        </button>
+                                    )}
+                                    {onResetPassword && (
+                                        <button
+                                            onClick={() => onResetPassword(user.userId, user.fullName, 'user')}
+                                            className="py-4 px-6 bg-white border border-gray-200 text-gray-900 rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-gray-50 transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-lg active:scale-95 italic"
+                                        >
+                                            <Key size={14} /> Security Reset
+                                        </button>
+                                    )}
+                                    {onViewAudit && (
+                                        <button
+                                            onClick={() => onViewAudit(user)}
+                                            className="col-span-2 py-4 px-6 bg-indigo-50/50 border border-indigo-100 text-indigo-600 rounded-[20px] font-black text-[10px] uppercase tracking-[0.2em] hover:bg-indigo-100 transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95 italic"
+                                        >
+                                            <Shield size={14} /> Comprehensive Audit Node
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                             
                             <div className="h-10" aria-hidden="true" />
                         </div>

@@ -68,7 +68,9 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
         // Unified User Management
         if (permissions.userManagement.access && !isAmbassadorRole) {
-            const userHref = isSuperAdmin ? '/superadmin/users' : (isCampusLevel ? '/campus/users' : `${baseAdminPath}?view=users`)
+            const userHref = isSuperAdmin || user.role === 'Finance Admin' || user.role === 'Admission Admin'
+                ? '/superadmin/users'
+                : (isCampusLevel ? '/campus/users' : `${baseAdminPath}?view=users`)
             const userLabel = isSuperAdmin ? 'User Operations' : 'User Management'
             navItems.push({ label: userLabel, href: userHref, icon: <Users /> })
         }

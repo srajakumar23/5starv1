@@ -251,7 +251,7 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
 
     return (
         <div className="animate-fade-in space-y-8 p-6 bg-gray-50/50 min-h-screen">
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center justify-between mb-8 xl:pr-14">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">{getTitle()}</h1>
                     <p className="text-sm text-gray-500 mt-1">{getSubtitle()}</p>
@@ -259,7 +259,7 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                 <div className="flex items-center gap-4">
                     {['home', 'analytics', 'referrals', 'users', 'students', 'reports'].includes(selectedView || 'analytics') && (
                         <>
-                            <StudentSourceFilter />
+                            {selectedView !== 'users' && <StudentSourceFilter />}
                             <AcademicYearFilter />
                         </>
                     )}

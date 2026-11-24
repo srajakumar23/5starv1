@@ -49,6 +49,12 @@ interface UserTableProps {
     onReferralsFilterChange: (referrals: string[] | ((prev: string[]) => string[])) => void
     onClearAllFilters: () => void
     showCampusFilter?: boolean
+    canCreate?: boolean
+    canEdit?: boolean
+    canDelete?: boolean
+    canResetPassword?: boolean
+    canViewAudit?: boolean
+    isSuperAdmin?: boolean
 }
 
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -80,7 +86,13 @@ export function UserTable({
     referralsFilterValue,
     onReferralsFilterChange,
     onClearAllFilters,
-    showCampusFilter = true
+    showCampusFilter = true,
+    canCreate = true,
+    canEdit = true,
+    canDelete = true,
+    canResetPassword = true,
+    canViewAudit = true,
+    isSuperAdmin = true
 }: UserTableProps) {
     const [selectedUsers, setSelectedUsers] = useState<User[]>([])
     const [isProcessing, setIsProcessing] = useState(false)
@@ -310,34 +322,40 @@ export function UserTable({
                     </button>
                     {user.status !== 'Deleted' ? (
                         <>
-                            <button
-                                onClick={() => onToggleStatus(user.userId, user.status)}
-                                className={`p-2 rounded-xl transition-all shadow-sm bg-white border border-gray-100 flex items-center justify-center hover:scale-110 active:scale-95 ${user.status === 'Active' ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50' : 'text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50'}`}
-                                aria-label={user.status === 'Active' ? `Deactivate ${user.fullName}` : `Activate ${user.fullName}`}
-                                suppressHydrationWarning
-                            >
-                                {user.status === 'Active' ? <XCircle size={16} strokeWidth={2.5} /> : <CheckCircle size={16} strokeWidth={2.5} />}
-                            </button>
-                            <button
-                                onClick={() => onDelete(user.userId, user.fullName)}
-                                className="p-2 rounded-xl text-red-500 hover:text-white hover:bg-red-500 transition-all border border-red-50 shadow-sm bg-white hover:scale-110 active:scale-95 group"
-                                suppressHydrationWarning
-                                title="Move to Archive"
-                                aria-label={`Archive ${user.fullName}`}
-                            >
-                                <Trash2 size={16} strokeWidth={2.5} className="group-hover:animate-pulse" />
-                            </button>
+                            {canEdit && (
+                                <button
+                                    onClick={() => onToggleStatus(user.userId, user.status)}
+                                    className={`p-2 rounded-xl transition-all shadow-sm bg-white border border-gray-100 flex items-center justify-center hover:scale-110 active:scale-95 ${user.status === 'Active' ? 'text-gray-400 hover:text-gray-600 hover:bg-gray-50' : 'text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                                    aria-label={user.status === 'Active' ? `Deactivate ${user.fullName}` : `Activate ${user.fullName}`}
+                                    suppressHydrationWarning
+                                >
+                                    {user.status === 'Active' ? <XCircle size={16} strokeWidth={2.5} /> : <CheckCircle size={16} strokeWidth={2.5} />}
+                                </button>
+                            )}
+                            {canDelete && (
+                                <button
+                                    onClick={() => onDelete(user.userId, user.fullName)}
+                                    className="p-2 rounded-xl text-red-500 hover:text-white hover:bg-red-500 transition-all border border-red-50 shadow-sm bg-white hover:scale-110 active:scale-95 group"
+                                    suppressHydrationWarning
+                                    title="Move to Archive"
+                                    aria-label={`Archive ${user.fullName}`}
+                                >
+                                    <Trash2 size={16} strokeWidth={2.5} className="group-hover:animate-pulse" />
+                                </button>
+                            )}
                         </>
                     ) : (
-                        <button
-                            onClick={() => onPurge?.(user.userId, user.fullName)}
-                            className="p-2 rounded-xl text-white bg-red-600 hover:bg-red-700 transition-all border border-red-700 shadow-lg hover:scale-110 active:scale-95 group flex items-center gap-1.5 px-3"
-                            suppressHydrationWarning
-                            title="Purge Permanently"
-                        >
-                            <Trash2 size={14} strokeWidth={2.5} />
-                            <span className="text-[9px] font-black uppercase tracking-tighter">Purge</span>
-                        </button>
+                        canDelete && isSuperAdmin && (
+                            <button
+                                onClick={() => onPurge?.(user.userId, user.fullName)}
+                                className="p-2 rounded-xl text-white bg-red-600 hover:bg-red-700 transition-all border border-red-700 shadow-lg hover:scale-110 active:scale-95 group flex items-center gap-1.5 px-3"
+                                suppressHydrationWarning
+                                title="Purge Permanently"
+                            >
+                                <Trash2 size={14} strokeWidth={2.5} />
+                                <span className="text-[9px] font-black uppercase tracking-tighter">Purge</span>
+                            </button>
+                        )
                     )}
                 </div>
             )
@@ -448,7 +466,7 @@ export function UserTable({
                 if (selectedColumns.joinedDate) headers.push('Joined Date')
                 if (selectedColumns.status) headers.push('Status')
                 if (selectedColumns.source) headers.push('Upload Source')
-                if (selectedColumns.password) headers.push('Password')
+                if (isSuperAdmin && selectedColumns.password) headers.push('Password')
 
                 const csvRows = [headers.join(',')]
 
@@ -507,7 +525,7 @@ export function UserTable({
                         const source = (user as any).registrationSource || 'System'
                         row.push(`"${source === 'Admin Created' ? 'Admin Created' : (source === 'Manual' ? 'Manual Import' : 'System/Organic')}"`)
                     }
-                    if (selectedColumns.password) row.push(`"${user.password || ''}"`)
+                    if (isSuperAdmin && selectedColumns.password) row.push(`"${user.password || ''}"`)
 
                     csvRows.push(row.join(','))
                 }
@@ -571,35 +589,39 @@ export function UserTable({
                     >
                         <Download size={16} /> Export
                     </button>
-                    <button
-                        onClick={() => {
-                            const csvContent = "Full Name,Mobile Number,Role,Email,Assigned Campus,Emp ID,Child ERP No,Academic Year,Password,Referral Code,Child In Achariya,Benefit Status,Aadhar No,Address,Bank Name,Account Number,IFSC Code\nJohn Doe,9876543210,Staff,john@example.com,Achariya School,EMP001,,2025-2026,Pass@123,,No,Active,,,\nJane Doe,9876543211,Parent,jane@example.com,Achariya School,,STU001,2025-2026,Pass@123,,Yes,PendingVerification,,,"
-                            const blob = new Blob([csvContent], { type: 'text/csv' })
-                            const url = window.URL.createObjectURL(blob)
-                            const a = document.createElement('a')
-                            a.href = url
-                            a.download = 'ambassador_template.csv'
-                            a.click()
-                        }}
-                        className="px-4 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5 transition-all flex items-center gap-2 uppercase tracking-wide"
-                        suppressHydrationWarning
-                    >
-                        <Download size={16} /> Template
-                    </button>
-                    <button
-                        onClick={onBulkAdd}
-                        className="px-4 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5 transition-all flex items-center gap-2 uppercase tracking-wide"
-                        suppressHydrationWarning
-                    >
-                        <UserPlus size={16} /> Bulk Upload
-                    </button>
-                    <button
-                        onClick={onAddUser}
-                        className="px-5 py-3 bg-gray-900 text-white rounded-xl font-bold text-xs shadow-lg shadow-gray-200 hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center gap-2 uppercase tracking-wide"
-                        suppressHydrationWarning
-                    >
-                        <UserPlus size={16} /> Add New
-                    </button>
+                    {canCreate && (
+                        <>
+                            <button
+                                onClick={() => {
+                                    const csvContent = "Full Name,Mobile Number,Role,Email,Assigned Campus,Emp ID,Child ERP No,Academic Year,Password,Referral Code,Child In Achariya,Benefit Status,Aadhar No,Address,Bank Name,Account Number,IFSC Code\nJohn Doe,9876543210,Staff,john@example.com,Achariya School,EMP001,,2025-2026,Pass@123,,No,Active,,,\nJane Doe,9876543211,Parent,jane@example.com,Achariya School,,STU001,2025-2026,Pass@123,,Yes,PendingVerification,,,"
+                                    const blob = new Blob([csvContent], { type: 'text/csv' })
+                                    const url = window.URL.createObjectURL(blob)
+                                    const a = document.createElement('a')
+                                    a.href = url
+                                    a.download = 'ambassador_template.csv'
+                                    a.click()
+                                }}
+                                className="px-4 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5 transition-all flex items-center gap-2 uppercase tracking-wide"
+                                suppressHydrationWarning
+                            >
+                                <Download size={16} /> Template
+                            </button>
+                            <button
+                                onClick={onBulkAdd}
+                                className="px-4 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-xs hover:bg-gray-50 hover:shadow-md hover:-translate-y-0.5 transition-all flex items-center gap-2 uppercase tracking-wide"
+                                suppressHydrationWarning
+                            >
+                                <UserPlus size={16} /> Bulk Upload
+                            </button>
+                            <button
+                                onClick={onAddUser}
+                                className="px-5 py-3 bg-gray-900 text-white rounded-xl font-bold text-xs shadow-lg shadow-gray-200 hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center gap-2 uppercase tracking-wide"
+                                suppressHydrationWarning
+                            >
+                                <UserPlus size={16} /> Add New
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -811,7 +833,7 @@ export function UserTable({
             </div>
 
             {/* Bulk Action Bar (Floating) */}
-            {selectedUsers.length > 0 && (
+            {(canEdit || canDelete) && selectedUsers.length > 0 && (
                 <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-5 fade-in duration-300">
                     <div className="bg-gray-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 border border-gray-700">
                         <div className="flex items-center gap-2">
@@ -822,34 +844,40 @@ export function UserTable({
                         </div>
                         <div className="h-4 w-px bg-gray-700"></div>
                         <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => handleBulkAction('activate')}
-                                disabled={isProcessing}
-                                className="px-3 py-1.5 hover:bg-gray-800 rounded-lg text-xs font-bold uppercase tracking-wider text-emerald-400 transition-colors flex items-center gap-2"
-                            >
-                                <CheckCircle size={14} /> Activate
-                            </button>
-                            <button
-                                onClick={() => handleBulkAction('suspend')}
-                                disabled={isProcessing}
-                                className="px-3 py-1.5 hover:bg-gray-800 rounded-lg text-xs font-bold uppercase tracking-wider text-amber-400 transition-colors flex items-center gap-2"
-                            >
-                                <XCircle size={14} /> Suspend
-                            </button>
-                            <button
-                                onClick={() => handleBulkAction('deactivate')}
-                                disabled={isProcessing}
-                                className="px-3 py-1.5 hover:bg-gray-800 rounded-lg text-xs font-bold uppercase tracking-wider text-gray-400 transition-colors flex items-center gap-2"
-                            >
-                                <XCircle size={14} /> Deactivate
-                            </button>
-                            <button
-                                onClick={() => handleBulkAction('delete')}
-                                disabled={isProcessing}
-                                className="px-3 py-1.5 hover:bg-red-900/30 rounded-lg text-xs font-bold uppercase tracking-wider text-red-400 transition-colors flex items-center gap-2"
-                            >
-                                <Trash2 size={14} /> Delete
-                            </button>
+                            {canEdit && (
+                                <>
+                                    <button
+                                        onClick={() => handleBulkAction('activate')}
+                                        disabled={isProcessing}
+                                        className="px-3 py-1.5 hover:bg-gray-800 rounded-lg text-xs font-bold uppercase tracking-wider text-emerald-400 transition-colors flex items-center gap-2"
+                                    >
+                                        <CheckCircle size={14} /> Activate
+                                    </button>
+                                    <button
+                                        onClick={() => handleBulkAction('suspend')}
+                                        disabled={isProcessing}
+                                        className="px-3 py-1.5 hover:bg-gray-800 rounded-lg text-xs font-bold uppercase tracking-wider text-amber-400 transition-colors flex items-center gap-2"
+                                    >
+                                        <XCircle size={14} /> Suspend
+                                    </button>
+                                    <button
+                                        onClick={() => handleBulkAction('deactivate')}
+                                        disabled={isProcessing}
+                                        className="px-3 py-1.5 hover:bg-gray-800 rounded-lg text-xs font-bold uppercase tracking-wider text-gray-400 transition-colors flex items-center gap-2"
+                                    >
+                                        <XCircle size={14} /> Deactivate
+                                    </button>
+                                </>
+                            )}
+                            {canDelete && (
+                                <button
+                                    onClick={() => handleBulkAction('delete')}
+                                    disabled={isProcessing}
+                                    className="px-3 py-1.5 hover:bg-red-900/30 rounded-lg text-xs font-bold uppercase tracking-wider text-red-400 transition-colors flex items-center gap-2"
+                                >
+                                    <Trash2 size={14} /> Delete
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -872,7 +900,7 @@ export function UserTable({
                         pageSize={pagination?.pageSize || 10}
                         pageSizeOptions={[10, 20, 50, 100]}
                         onPageSizeChange={onPageSizeChange}
-                        enableMultiSelection={true}
+                        enableMultiSelection={canEdit || canDelete}
                         onSelectionChange={(selected: User[]) => setSelectedUsers(selected)}
                         uniqueKey="userId"
                         onRowClick={setSelectedUserForDetail}
@@ -942,7 +970,9 @@ export function UserTable({
                         <div className="space-y-4 mb-6 max-h-[40vh] overflow-y-auto pr-2">
                             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Select Columns</p>
                             <div className="grid grid-cols-2 gap-3">
-                                {Object.entries(selectedColumns).map(([key, value]) => (
+                                {Object.entries(selectedColumns)
+                                    .filter(([key]) => isSuperAdmin || key !== 'password')
+                                    .map(([key, value]) => (
                                     <label key={key} className="flex items-center gap-2 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 cursor-pointer transition-all">
                                         <input
                                             type="checkbox"
@@ -991,18 +1021,18 @@ export function UserTable({
             <UserDetailPanel
                 user={selectedUserForDetail}
                 onClose={() => setSelectedUserForDetail(null)}
-                onEdit={(user) => {
+                onEdit={canEdit && onEdit ? (user) => {
                     setSelectedUserForDetail(null)
-                    onEdit?.(user)
-                }}
-                onResetPassword={(id, name, type) => {
+                    onEdit(user)
+                } : undefined}
+                onResetPassword={canResetPassword && onResetPassword ? (id, name, type) => {
                     setSelectedUserForDetail(null)
-                    onResetPassword?.(id, name, type)
-                }}
-                onViewAudit={(user) => {
+                    onResetPassword(id, name, type)
+                } : undefined}
+                onViewAudit={canViewAudit ? (user) => {
                     setSelectedUserForAudit(user)
                     setShowAuditTimeline(true)
-                }}
+                } : undefined}
             />
 
             {/* User Audit Timeline Modal */}

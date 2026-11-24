@@ -1,7 +1,7 @@
 
 import { Suspense } from 'react'
 import { getCurrentUser } from '@/lib/auth-service'
-import { hasPermission } from '@/lib/permission-service'
+import { hasPermission, getMyPermissions } from '@/lib/permission-service'
 import { redirect } from 'next/navigation'
 import { getAllUsers } from '@/app/superadmin-actions'
 import { getCampusNames } from '@/app/campus-actions'
@@ -49,8 +49,8 @@ export default async function SuperAdminUsersPage({ searchParams }: PageProps) {
     const campusFilter = Array.isArray(params.campus) ? params.campus[0] : params.campus
     const referrals = Array.isArray(params.referrals) ? params.referrals[0] : params.referrals
 
-    // Parallel Fetching: Using lightweight getCampusNames and getAllUsers together
-    const [campusesResponse, usersResponse] = await Promise.all([
+    // Parallel Fetching: Using lightweight getCampusNames, getAllUsers, and permissions together
+    const [campusesResponse, usersResponse, permissions] = await Promise.all([
         getCampusNames(),
         getAllUsers({
             academicYear: year as string,
@@ -62,8 +62,16 @@ export default async function SuperAdminUsersPage({ searchParams }: PageProps) {
             source: source as string,
             campusFilter: campusFilter as string,
             referrals: referrals as string
-        })
+        }),
+        getMyPermissions()
     ])
+
+    const isSuperAdmin = user.role === 'Super Admin'
+    const canCreate = isSuperAdmin || Boolean(permissions?.userManagement?.canCreate)
+    const canEdit = isSuperAdmin || Boolean(permissions?.userManagement?.canEdit)
+    const canDelete = isSuperAdmin || Boolean(permissions?.userManagement?.canDelete)
+    const canResetPassword = isSuperAdmin || Boolean(permissions?.passwordReset?.access)
+    const canViewAudit = isSuperAdmin || Boolean(permissions?.auditLog?.access)
     
     const campuses = campusesResponse.success ? campusesResponse.campuses || [] : []
 
@@ -79,6 +87,11 @@ export default async function SuperAdminUsersPage({ searchParams }: PageProps) {
                     pagination={serializeData(pagination)}
                     campuses={serializeData(campuses) as any}
                     currentUserRole={user?.role || 'Campus Admin'}
+                    canCreate={canCreate}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
+                    canResetPassword={canResetPassword}
+                    canViewAudit={canViewAudit}
                 />
             </Suspense>
         </ErrorBoundary>

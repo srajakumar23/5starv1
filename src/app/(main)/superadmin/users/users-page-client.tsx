@@ -26,9 +26,24 @@ interface UsersPageClientProps {
     } | null
     campuses: Campus[]
     currentUserRole?: string
+    canCreate?: boolean
+    canEdit?: boolean
+    canDelete?: boolean
+    canResetPassword?: boolean
+    canViewAudit?: boolean
 }
 
-export default function UsersPageClient({ users, pagination, campuses, currentUserRole }: UsersPageClientProps) {
+export default function UsersPageClient({
+    users,
+    pagination,
+    campuses,
+    currentUserRole,
+    canCreate = true,
+    canEdit = true,
+    canDelete = true,
+    canResetPassword = true,
+    canViewAudit = true
+}: UsersPageClientProps) {
     const router = useRouter()
     const [searchQuery, setSearchQuery] = useState('')
     const [showAddUserModal, setShowAddUserModal] = useState(false)
@@ -371,22 +386,24 @@ export default function UsersPageClient({ users, pagination, campuses, currentUs
             </div>
 
             {/* View Toggle */}
-            <div className="flex bg-white/50 backdrop-blur-sm p-1 rounded-2xl border border-white/20 w-fit shadow-sm">
-                <button
-                    onClick={() => handleUserViewToggle('active')}
-                    className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${userView === 'active' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:text-indigo-600'}`}
-                    suppressHydrationWarning
-                >
-                    Active Users
-                </button>
-                <button
-                    onClick={() => handleUserViewToggle('archive')}
-                    className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${userView === 'archive' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-red-600'}`}
-                    suppressHydrationWarning
-                >
-                    Archived (Recycled)
-                </button>
-            </div>
+            {canDelete && (
+                <div className="flex bg-white/50 backdrop-blur-sm p-1 rounded-2xl border border-white/20 w-fit shadow-sm">
+                    <button
+                        onClick={() => handleUserViewToggle('active')}
+                        className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${userView === 'active' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:text-indigo-600'}`}
+                        suppressHydrationWarning
+                    >
+                        Active Users
+                    </button>
+                    <button
+                        onClick={() => handleUserViewToggle('archive')}
+                        className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${userView === 'archive' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-red-600'}`}
+                        suppressHydrationWarning
+                    >
+                        Archived (Recycled)
+                    </button>
+                </div>
+            )}
 
             <UserTable
                 users={filteredUsers}
@@ -407,6 +424,12 @@ export default function UsersPageClient({ users, pagination, campuses, currentUs
                 referralsFilterValue={referralsFilter}
                 onReferralsFilterChange={handleReferralsFilterChange}
                 onClearAllFilters={handleClearAllFilters}
+                canCreate={canCreate}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                canResetPassword={canResetPassword}
+                canViewAudit={canViewAudit}
+                isSuperAdmin={currentUserRole === 'Super Admin'}
                 onAddUser={() => {
                     setEditingUser(null);
                     setUserForm({
@@ -422,8 +445,11 @@ export default function UsersPageClient({ users, pagination, campuses, currentUs
                 onDelete={(id, name) => handleDeleteUser(id, name)}
                 onToggleStatus={handleToggleUserStatus}
                 onViewReferrals={(code) => {
-                    // Navigate to referrals view with filter
-                    router.push(`/superadmin/referrals?search=${code}`)
+                    // Navigate to referrals view with filter based on role routing
+                    const targetPath = (currentUserRole === 'Super Admin' || currentUserRole === 'Admission Admin')
+                        ? `/superadmin/referrals?search=${code}`
+                        : `/admin?view=referrals&search=${code}`
+                    router.push(targetPath)
                 }}
                 onResetPassword={openResetModal}
                 onEdit={openEditUserModal}

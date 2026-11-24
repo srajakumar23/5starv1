@@ -12,7 +12,7 @@ import { getSpecialBonusRate } from '@/lib/reward-constants'
 export async function getAmbassadorLedger(userId: number, academicYear: string = '2026-2027') {
     const admin = await getCurrentUser()
     // Admin or self can view
-    if (!admin || (Number(admin.userId) !== userId && admin.role !== 'Super Admin')) {
+    if (!admin || (Number(admin.userId) !== userId && admin.role !== 'Super Admin' && admin.role !== 'Finance Admin')) {
         return { success: false, error: 'Unauthorized' }
     }
 
