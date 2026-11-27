@@ -324,6 +324,33 @@ export function DashboardClient({
     // Derived Display Data
     const realConfirmedCount = filteredReferrals.filter((r: any) => r.leadStatus === 'Confirmed' || r.leadStatus === 'Admitted').length
     const pendingCount = filteredReferrals.length - realConfirmedCount
+    const leadPipelineCounts = useMemo(() => {
+        let submitted = 0
+        let inProgress = 0
+        let confirmed = 0
+        let rejected = 0
+
+        for (const r of filteredReferrals as any[]) {
+            const s = r.leadStatus
+            if (s === 'Confirmed' || s === 'Admitted') {
+                confirmed++
+            } else if (s === 'Rejected') {
+                rejected++
+            } else if (s === 'Follow-up' || s === 'Follow_up' || s === 'Contacted' || s === 'Interested') {
+                inProgress++
+            } else {
+                submitted++
+            }
+        }
+
+        return {
+            submitted,
+            inProgress,
+            confirmed,
+            rejected,
+            total: filteredReferrals.length
+        }
+    }, [filteredReferrals])
 
     // Sort recent referrals (just for display)
     const recentReferralsDisplay = [...filteredReferrals]
@@ -448,6 +475,8 @@ export function DashboardClient({
                 overrideEstimatedAmount={benefitStats.potential}
                 notifications={notifications}
                 unreadCount={unreadCount}
+                slabs={slabs}
+                leadPipelineCounts={leadPipelineCounts}
             />
         </div>
     )

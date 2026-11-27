@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { DataTable } from '@/components/ui/DataTable'
 import { PaymentModal } from './PaymentModal'
@@ -591,6 +591,78 @@ export function SettlementTable({
         { id: 'remarks', label: 'Remarks', defaultChecked: true }
     ]
 
+    const bulkConfirmDescription = useMemo(() => {
+        const activeBatch = syncMode === 'mobile' ? pastPayoutsToSync : pendingPayoutsToProcess
+        if (activeBatch.length === 0) {
+            return syncMode === 'mobile'
+                ? 'No records found to sync.'
+                : 'No valid records found to process.'
+        }
+
+        const totalRows = activeBatch.length
+        const totalAmount = activeBatch.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+        const getUtr = (r: any) => (syncMode === 'mobile' ? r.utr : r.transactionId) || ''
+        const autoUtrCount = activeBatch.filter(r => {
+            const u = getUtr(r)
+            return u.startsWith('Bulk-') || u.startsWith('ERP-WAIVER-')
+        }).length
+        const explicitUtrCount = totalRows - autoUtrCount
+        const withBankCount = activeBatch.filter(r => Boolean(r.accountNumber && r.ifscCode)).length
+        const missingMobileCount = activeBatch.filter(r => !r.mobile).length
+        const previewRows = activeBatch.slice(0, 3)
+
+        return (
+            <div className="space-y-3 text-left font-normal mt-2">
+                <p className="text-xs text-gray-500 text-center leading-relaxed">
+                    {syncMode === 'mobile'
+                        ? 'Matches by Mobile / ERP / ID and marks settlements as PAID immediately.'
+                        : 'Matches by Referral Admission No (Priority) or Mobile Number.'}
+                </p>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Records</div>
+                        <div className="text-sm font-black text-gray-900">{totalRows}</div>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5">
+                        <div className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Total Payout</div>
+                        <div className="text-sm font-black text-emerald-800">{formatIndianCurrency(totalAmount)}</div>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5">
+                        <div className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Explicit UTRs</div>
+                        <div className="text-xs font-black text-blue-900">
+                            {explicitUtrCount}/{totalRows}
+                            {autoUtrCount > 0 && (
+                                <span className="block text-[10px] font-bold text-amber-600">{autoUtrCount} auto-generated</span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Bank A/C + IFSC</div>
+                        <div className="text-xs font-black text-gray-900">{withBankCount}/{totalRows}</div>
+                    </div>
+                </div>
+
+                {missingMobileCount > 0 && (
+                    <div className="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                        {missingMobileCount} row{missingMobileCount > 1 ? 's' : ''} missing mobile — will match via ERP / ID.
+                    </div>
+                )}
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-1.5">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Sample Preview</div>
+                    {previewRows.map((row: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between gap-2 text-[11px] text-gray-700 border-t first:border-t-0 border-gray-200/70 pt-1 first:pt-0">
+                            <span className="font-mono font-semibold truncate">{row.mobile || row.eprNo || row.childEprNo || `Row ${idx + 1}`}</span>
+                            <span className="font-bold text-gray-900 shrink-0">{row.amount ? formatIndianCurrency(Number(row.amount)) : 'Auto'}</span>
+                            <span className="font-mono text-[10px] text-gray-500 truncate max-w-[90px]">{getUtr(row)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    }, [syncMode, pastPayoutsToSync, pendingPayoutsToProcess])
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center px-1">
@@ -718,10 +790,7 @@ export function SettlementTable({
             <ConfirmDialog
                 isOpen={showBulkConfirm}
                 title={syncMode === 'mobile' ? "Confirm Past Payout Sync" : "Confirm Bulk Payouts"}
-                description={syncMode === 'mobile'
-                    ? `Found ${pastPayoutsToSync.length} records to sync by Mobile/ERP. This will mark them as PAID immediately. Proceed?`
-                    : `Found ${pendingPayoutsToProcess.length} valid records to process. The system will match by Referral Admission Number (Priority) or Mobile Number. Proceed?`
-                }
+                description={bulkConfirmDescription}
                 confirmText={syncMode === 'mobile' ? "Sync Now" : "Proceed Bulk"}
                 onConfirm={confirmBulkProcess}
                 onCancel={() => {

@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { Share2, UserPlus, ChevronRight, Clock, Star, TrendingUp, Wallet, Copy, Check, CheckCircle, Award, ChevronDown, User, Clipboard, Bell } from 'lucide-react'
 import { motion, Variants, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
-import { useState, useEffect, ReactNode } from 'react'
+import { useState, useEffect, useMemo, ReactNode } from 'react'
 
 import { PageAnimate, PageItem } from '@/components/PageAnimate'
 import { CircularProgress } from '@/components/ui/CircularProgress'
@@ -38,6 +38,8 @@ interface ActionHomeBlueUnifiedProps {
     overrideEstimatedAmount?: number
     notifications?: any[]
     unreadCount?: number
+    slabs?: { referralCount: number; yearFeeBenefitPercent: number; tierName?: string | null }[]
+    leadPipelineCounts?: { submitted: number; inProgress: number; confirmed: number; rejected: number; total: number }
 }
 
 // Animation Variants
@@ -100,12 +102,29 @@ export function ActionHomeBlueUnified({
     overrideSettledAmount,
     overrideEstimatedAmount,
     notifications = [],
-    unreadCount = 0
+    unreadCount = 0,
+    slabs,
+    leadPipelineCounts
 }: ActionHomeBlueUnifiedProps) {
     const firstName = user.fullName.split(' ')[0]
 
     // Dynamic Data
     const displayCount = user.confirmedReferralCount
+
+    const activeTiers = useMemo(() => {
+        if (!slabs || slabs.length === 0) return tiers
+        const sorted = [...slabs]
+            .sort((a, b) => a.referralCount - b.referralCount)
+            .slice(0, 5)
+            .map(s => ({ count: s.referralCount, percent: s.yearFeeBenefitPercent }))
+        return sorted.length > 0 ? sorted : tiers
+    }, [slabs])
+
+    const nextTier = useMemo(() => activeTiers.find(t => t.count > displayCount), [activeTiers, displayCount])
+    const maxTier = activeTiers[activeTiers.length - 1]
+    const milestonePct = maxTier && maxTier.count > 0
+        ? Math.min(100, Math.round((displayCount / maxTier.count) * 100))
+        : 0
 
     const [greeting, setGreeting] = useState('')
     const [subtitle, setSubtitle] = useState<ReactNode>('')
@@ -510,12 +529,33 @@ export function ActionHomeBlueUnified({
 
                             {/* Short Term Tiers */}
                             <div className="mb-6">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <CheckCircle size={14} className="text-blue-400" />
-                                    <span className="text-[10px] font-black text-blue-200/80 uppercase tracking-widest">Current Year (Short Term)</span>
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle size={14} className="text-blue-400" />
+                                        <span className="text-[10px] font-black text-blue-200/80 uppercase tracking-widest">Current Year (Short Term)</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {nextTier ? (
+                                            <span className="text-[10px] font-bold text-cyan-300 bg-cyan-500/10 border border-cyan-400/20 px-2.5 py-1 rounded-full">
+                                                {nextTier.count - displayCount} more confirmed {nextTier.count - displayCount === 1 ? 'admission' : 'admissions'} to unlock {nextTier.percent}% tier ({displayCount}/{nextTier.count})
+                                            </span>
+                                        ) : (
+                                            <span className="text-[10px] font-black text-amber-300 bg-amber-500/15 border border-amber-400/30 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                                                Maximum {maxTier?.percent ?? 50}% 5-Star Tier Unlocked!
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden border border-white/10">
+                                        <div
+                                            className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-blue-400 to-amber-400 transition-all duration-700"
+                                            style={{ width: `${milestonePct}%` }}
+                                        />
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 md:grid-cols-5 md:gap-3">
-                                    {tiers.map((tier, index) => {
+                                    {activeTiers.map((tier, index) => {
                                         const isCurrentTier = displayCount === tier.count
                                         const isAchieved = displayCount >= tier.count
                                         const tierColors = [
@@ -527,10 +567,10 @@ export function ActionHomeBlueUnified({
                                         ]
 
                                         const getCardClasses = () => {
-                                            const isFuture = tier.count > displayCount
-                                            const isNext = tier.count > displayCount && (index === 0 || displayCount >= tiers[index - 1]?.count)
+                                            const isNext = tier.count > displayCount && (index === 0 || displayCount >= activeTiers[index - 1]?.count)
+                                            const safeColor = tierColors[Math.min(index, tierColors.length - 1)]
 
-                                            let baseStyle = `bg-gradient-to-br ${tierColors[index]} border backdrop-blur-sm`
+                                            let baseStyle = `bg-gradient-to-br ${safeColor} border backdrop-blur-sm`
                                             if (index === 4) baseStyle = `bg-gradient-to-br from-amber-300 via-amber-450 to-amber-600 border-amber-400 text-black shadow-[0_0_20px_rgba(251,191,36,0.4)] shadow-inner brightness-110`
 
                                             if (isCurrentTier) return `${baseStyle} scale-105 z-10 shadow-2xl ring-2 ring-white/50 opacity-100`
@@ -955,6 +995,25 @@ export function ActionHomeBlueUnified({
                                     </Link>
                                 </div>
 
+                                {leadPipelineCounts && leadPipelineCounts.total > 0 && (
+                                    <div className="px-5 py-3 border-b border-white/5 bg-slate-950/30 flex flex-wrap items-center gap-2 relative z-10">
+                                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-300 border border-amber-400/20">
+                                            Submitted: {leadPipelineCounts.submitted}
+                                        </span>
+                                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-sky-500/10 text-sky-300 border border-sky-400/20">
+                                            In Progress: {leadPipelineCounts.inProgress}
+                                        </span>
+                                        <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-300 border border-emerald-400/20">
+                                            Confirmed: {leadPipelineCounts.confirmed}
+                                        </span>
+                                        {leadPipelineCounts.rejected > 0 && (
+                                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-300 border border-rose-400/20">
+                                                Closed: {leadPipelineCounts.rejected}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
                                 {recentReferrals.length === 0 ? (
                                     <div className="p-12 text-center relative z-10">
                                         <motion.div
@@ -978,28 +1037,40 @@ export function ActionHomeBlueUnified({
                                     </div>
                                 ) : (
                                     <div className="divide-y divide-white/5 relative z-10">
-                                        {recentReferrals.map((referral) => (
-                                            <div key={referral.leadId} className="p-5 hover:bg-white/5 transition-colors group/item">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-10 h-10 bg-gradient-to-br from-indigo-500/10 to-blue-600/10 rounded-xl flex items-center justify-center text-white font-black shadow-inner border border-white/10 uppercase">
-                                                        {(referral.studentName || referral.parentName).charAt(0)}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="font-bold text-xs text-slate-200 truncate group-hover/item:text-white transition-colors uppercase tracking-tight">
-                                                            {referral.studentName || referral.parentName}
-                                                        </p>
-                                                        <div className="flex items-center gap-3 mt-1">
-                                                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest border ${referral.status === 'Confirmed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
-                                                                {referral.status}
-                                                            </span>
-                                                            <span className="text-[9px] text-slate-500 flex items-center gap-1 font-medium uppercase">
-                                                                <Clock size={8} /> {new Date(referral.createdAt).toLocaleDateString('en-GB')}
-                                                            </span>
+                                        {recentReferrals.map((referral) => {
+                                            const rawStatus = (referral.leadStatus || referral.status || 'New').toString()
+                                            const statusLabel = rawStatus.replace('_', '-')
+                                            const badgeClass = (statusLabel === 'Confirmed' || statusLabel === 'Admitted')
+                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                                : (statusLabel === 'Follow-up' || statusLabel === 'Contacted' || statusLabel === 'Interested')
+                                                    ? 'bg-sky-500/10 text-sky-300 border-sky-400/20'
+                                                    : statusLabel === 'Rejected'
+                                                        ? 'bg-rose-500/10 text-rose-300 border-rose-400/20'
+                                                        : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+
+                                            return (
+                                                <div key={referral.leadId} className="p-5 hover:bg-white/5 transition-colors group/item">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 bg-gradient-to-br from-indigo-500/10 to-blue-600/10 rounded-xl flex items-center justify-center text-white font-black shadow-inner border border-white/10 uppercase">
+                                                            {(referral.studentName || referral.parentName).charAt(0)}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-bold text-xs text-slate-200 truncate group-hover/item:text-white transition-colors uppercase tracking-tight">
+                                                                {referral.studentName || referral.parentName}
+                                                            </p>
+                                                            <div className="flex items-center gap-3 mt-1">
+                                                                <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest border ${badgeClass}`}>
+                                                                    {statusLabel}
+                                                                </span>
+                                                                <span className="text-[9px] text-slate-500 flex items-center gap-1 font-medium uppercase">
+                                                                    <Clock size={8} /> {new Date(referral.createdAt).toLocaleDateString('en-GB')}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            )
+                                        })}
                                     </div>
                                 )}
                             </GlassCard>

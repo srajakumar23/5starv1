@@ -35,6 +35,23 @@ interface ReferralManagementTableProps {
     showCampusFilter?: boolean // New toggle prop
 }
 
+function getLeadSlaInfo(row: any): { level: 'warning' | 'critical'; label: string; hoursOpen: number } | null {
+    if (!row || row.leadStatus === 'Confirmed' || row.leadStatus === 'Admitted' || row.leadStatus === 'Rejected') {
+        return null
+    }
+    const createdMs = new Date(row.createdAt).getTime()
+    if (Number.isNaN(createdMs)) return null
+    const hoursOpen = (Date.now() - createdMs) / (1000 * 60 * 60)
+    const daysOpen = Math.floor(hoursOpen / 24)
+    if (hoursOpen >= 168) {
+        return { level: 'critical', label: `${daysOpen}d Overdue`, hoursOpen }
+    }
+    if (hoursOpen >= 48) {
+        return { level: 'warning', label: daysOpen >= 2 ? `${daysOpen}d SLA` : '>48h SLA', hoursOpen }
+    }
+    return null
+}
+
 // --- Excel-Like Filter Component ---
 function FilterDropdown({
     label,
@@ -239,6 +256,17 @@ export function ReferralManagementTable({
 
     // Selection
     const [selectedIds, setSelectedIds] = useState<number[]>([])
+    const [showOverdueOnly, setShowOverdueOnly] = useState(false)
+
+    const overdueCount = useMemo(
+        () => referrals.filter(r => getLeadSlaInfo(r) !== null).length,
+        [referrals]
+    )
+
+    const displayedReferrals = useMemo(
+        () => (showOverdueOnly ? referrals.filter(r => getLeadSlaInfo(r) !== null) : referrals),
+        [referrals, showOverdueOnly]
+    )
 
     // Bulk Confirmation States
     const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false)
@@ -707,9 +735,10 @@ export function ReferralManagementTable({
                 const isAdmitted = row.leadStatus === 'Admitted'
                 const isRejected = row.leadStatus === 'Rejected'
                 const isFollowUp = row.leadStatus === 'Follow-up' || row.leadStatus === 'Follow_up'
+                const sla = getLeadSlaInfo(row)
 
                 return (
-                    <div className="relative group/status flex items-center gap-2">
+                    <div className="relative group/status flex flex-wrap items-center gap-1.5">
                         <span className={`px-2 py-1 rounded text-[10px] font-black uppercase transition-all duration-300 border ${isAdmitted ? 'bg-indigo-50 text-indigo-700 border-indigo-100 shadow-sm shadow-indigo-500/10' :
                             isConfirmed ? 'bg-emerald-50 text-emerald-700 border-emerald-100 shadow-sm shadow-emerald-500/10' :
                                 isRejected ? 'bg-rose-50 text-rose-700 border-rose-100' :
@@ -718,6 +747,19 @@ export function ReferralManagementTable({
                             }`}>
                             {row.leadStatus}
                         </span>
+                        {sla && (
+                            <span
+                                title={`Open for ${Math.floor(sla.hoursOpen)}h without confirmation`}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tight border ${
+                                    sla.level === 'critical'
+                                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}
+                            >
+                                {sla.level === 'critical' ? <AlertCircle size={10} /> : <Clock size={10} />}
+                                {sla.label}
+                            </span>
+                        )}
                     </div>
                 )
             }
@@ -729,22 +771,10 @@ export function ReferralManagementTable({
                 accessorKey: 'createdAt',
                 cell: (row: any) => {
                     const date = new Date(row.createdAt)
-                    const now = new Date()
-                    const diffTime = Math.abs(now.getTime() - date.getTime())
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-                    const isStale = diffDays > 2 && row.leadStatus === 'New'
-
                     return (
-                        <div className="flex flex-col">
-                            <span className={`text-[11px] font-bold ${isStale ? 'text-rose-600 animate-pulse' : 'text-gray-500'}`}>
-                                {format(date, 'dd MMM yyyy')}
-                            </span>
-                            {isStale && (
-                                <span className="text-[9px] font-black text-rose-500 uppercase tracking-tighter mt-0.5 flex items-center gap-1">
-                                    <AlertCircle size={10} /> {diffDays}d Stale
-                                </span>
-                            )}
-                        </div>
+                        <span className="text-[11px] font-bold text-gray-500">
+                            {format(date, 'dd MMM yyyy')}
+                        </span>
                     )
                 }
             })
@@ -1103,13 +1133,37 @@ export function ReferralManagementTable({
                         className="py-2 text-sm font-medium text-gray-700 focus:outline-none"
                     />
                 </div>
+
+                {/* 1-Click SLA Overdue Filter (Current Page) */}
+                <button
+                    type="button"
+                    onClick={() => setShowOverdueOnly(v => !v)}
+                    title="Filter current page to open leads exceeding 48h SLA"
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+                        showOverdueOnly
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700'
+                    }`}
+                >
+                    <Clock size={14} />
+                    <span>Overdue SLA</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                        showOverdueOnly
+                            ? 'bg-white/20 text-white'
+                            : overdueCount > 0
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-gray-100 text-gray-500'
+                    }`}>
+                        {overdueCount}
+                    </span>
+                </button>
             </div>
 
 
 
             <DataTable
                 columns={columns}
-                data={referrals}
+                data={displayedReferrals}
                 manualPagination={true}
                 pageCount={meta.totalPages}
                 rowCount={meta.total}
@@ -1121,7 +1175,24 @@ export function ReferralManagementTable({
                 enableMultiSelection={true}
                 onSelectionChange={(selected) => setSelectedIds(selected.map((r: any) => r.leadId))}
                 uniqueKey="leadId"
-                emptyState={
+                emptyState={showOverdueOnly ? (
+                    <div className="flex flex-col items-center justify-center p-12 text-center">
+                        <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600 mb-4 border border-emerald-100">
+                            <CheckCircle size={28} />
+                        </div>
+                        <h3 className="text-lg font-black text-gray-900 mb-1">No Overdue SLA Leads on This Page</h3>
+                        <p className="text-sm text-gray-500 max-w-sm mb-5">
+                            All referrals on the current page are either within the 48-hour SLA window or already closed.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setShowOverdueOnly(false)}
+                            className="px-5 py-2.5 bg-gray-900 text-white rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-black transition-all"
+                        >
+                            Show All Referrals
+                        </button>
+                    </div>
+                ) : (
                     <div className="flex flex-col items-center justify-center p-12 text-center animate-in fade-in zoom-in-95 duration-500">
                         <div className="w-24 h-24 bg-red-50 rounded-full flex items-center justify-center text-red-600 mb-6 shadow-xl shadow-red-100/50">
                             <User size={40} strokeWidth={1.5} />
@@ -1138,7 +1209,7 @@ export function ReferralManagementTable({
                             <Download size={18} /> Open Promo Kit
                         </button>
                     </div>
-                }
+                )}
             />
 
 

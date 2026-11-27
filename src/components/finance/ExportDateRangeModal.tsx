@@ -1,8 +1,8 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { Download, X, Calendar, CheckSquare } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { Download, X, Calendar, CheckSquare, Landmark } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 
 interface ExportDateRangeModalProps {
@@ -126,6 +126,38 @@ export function ExportDateRangeModal({
     }
 
     const hasNoSelectedColumns = columns.length > 0 && selectedColumns.length === 0
+
+    // 1-click Bank NEFT Preset: detects standard payout/refund bank columns cleanly across all Finance tables
+    const neftColumnIds = useMemo(() => {
+        const ids = new Set(columns.map(c => c.id))
+        const hasBankFields =
+            ids.has('bankName') &&
+            (ids.has('accountNo') || ids.has('accountNumber')) &&
+            (ids.has('ifsc') || ids.has('ifscCode'))
+
+        if (!hasBankFields) return []
+
+        const preferredOrder = [
+            'fullName',
+            'name',
+            'mobile',
+            'bankName',
+            'accountNo',
+            'accountNumber',
+            'ifsc',
+            'ifscCode',
+            'amount',
+            'remaining',
+            'bankRef'
+        ]
+        return preferredOrder.filter(id => ids.has(id))
+    }, [columns])
+
+    const isNeftPresetActive = useMemo(() => {
+        if (neftColumnIds.length === 0 || selectedColumns.length !== neftColumnIds.length) return false
+        const selectedSet = new Set(selectedColumns)
+        return neftColumnIds.every(id => selectedSet.has(id))
+    }, [neftColumnIds, selectedColumns])
 
     const modalContent = (
         <AnimatePresence>
@@ -259,19 +291,36 @@ export function ExportDateRangeModal({
                                                 {selectedColumns.length}/{columns.length}
                                             </span>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                if (selectedColumns.length === columns.length) {
-                                                    setSelectedColumns([])
-                                                } else {
-                                                    setSelectedColumns(columns.map(c => c.id))
-                                                }
-                                            }}
-                                            className="text-xs font-bold text-blue-600 hover:text-blue-700"
-                                        >
-                                            {selectedColumns.length === columns.length ? 'Deselect All' : 'Select All'}
-                                        </button>
+                                        <div className="flex items-center gap-3">
+                                            {neftColumnIds.length >= 4 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedColumns(neftColumnIds)}
+                                                    title="Select only beneficiary name, mobile, bank A/C, IFSC & amount for bank upload"
+                                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                                                        isNeftPresetActive
+                                                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                                    }`}
+                                                >
+                                                    <Landmark size={11} />
+                                                    Bank NEFT Preset
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (selectedColumns.length === columns.length) {
+                                                        setSelectedColumns([])
+                                                    } else {
+                                                        setSelectedColumns(columns.map(c => c.id))
+                                                    }
+                                                }}
+                                                className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                                            >
+                                                {selectedColumns.length === columns.length ? 'Deselect All' : 'Select All'}
+                                            </button>
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                         {columns.map(col => {
