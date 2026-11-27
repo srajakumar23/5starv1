@@ -1,4 +1,5 @@
 import { getCurrentUser } from '@/lib/auth-service'
+import { hasPermission } from '@/lib/permission-service'
 import { getCampusStats, getCampusStudents, getCampusReferrals, getCampusFinance, getCampusRecentActivity, getCampusTargets, getCampusAmbassadorStats, getCampusDeadLeads, getCampusConversionStats } from '@/app/actions/campus-dashboard-actions'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -35,11 +36,13 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
     const days = params?.days ? parseInt(params.days) : 30
     const year = params?.year
 
-    const [{ success, stats, error }, targetsResult] = await Promise.all([
+    const [{ success, stats, error }, targetsResult, settlementsAllowed] = await Promise.all([
         getCampusStats(days, year),
-        getCampusTargets()
+        getCampusTargets(),
+        hasPermission('settlements')
     ])
     const target = targetsResult.success ? targetsResult.target : null
+    const canViewPartnerBenefits = user.role === 'Super Admin' || settlementsAllowed
 
     if (error) {
         return <div className="p-8 text-center text-red-500 flex flex-col items-center gap-4">
@@ -135,65 +138,10 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
     }
 
     if (view === 'finance') {
-        const financeResult = await getCampusFinance(days, year)
-        const financeData = financeResult.success ? financeResult.data || [] : []
-        const financeSummary = financeResult.success ? financeResult.summary || { totalConfirmed: 0, totalBenefits: 0 } : { totalConfirmed: 0, totalBenefits: 0 }
-        return (
-            <div className="space-y-6 animate-fade-in">
-                <Link href="/campus" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm font-medium">
-                    <ArrowLeft size={16} /> Back to Home
-                </Link>
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                    <div>
-                        <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary-maroon to-primary-gold">Campus Finance</h1>
-                        <p className="text-gray-500 mt-1">Earnings and incentive tracking</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <AcademicYearFilter />
-                        <DateRangeSelector currentDays={days} />
-                    </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-5 text-white">
-                        <p className="text-green-100 text-xs font-medium uppercase tracking-wider">Confirmed</p>
-                        <p className="text-3xl font-extrabold mt-1">{financeSummary.totalConfirmed}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-5 text-white">
-                        <p className="text-purple-100 text-xs font-medium uppercase tracking-wider">Total Benefits</p>
-                        <p className="text-3xl font-extrabold mt-1">₹{(financeSummary.totalBenefits || 0).toLocaleString()}</p>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-5 text-white">
-                        <p className="text-blue-100 text-xs font-medium uppercase tracking-wider">Ambassadors</p>
-                        <p className="text-3xl font-extrabold mt-1">{new Set(financeData.map((r: any) => r.ambassadorName)).size}</p>
-                    </div>
-                </div>
-                <div className="bg-white rounded-2xl border border-gray-100 p-6 overflow-hidden">
-                    <h3 className="font-bold text-gray-900 mb-4">Incentive Breakdown</h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-gray-100 text-gray-400">
-                                    <th className="text-left py-3 px-2 font-bold uppercase text-[10px] tracking-widest">Ambassador</th>
-                                    <th className="text-left py-3 px-2 font-bold uppercase text-[10px] tracking-widest">Student</th>
-                                    <th className="text-right py-3 px-2 font-bold uppercase text-[10px] tracking-widest">Base Fee</th>
-                                    <th className="text-right py-3 px-2 font-bold uppercase text-[10px] tracking-widest">Benefit</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {financeData.map((row: any, idx: number) => (
-                                    <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                                        <td className="py-3 px-2 font-medium text-gray-800">{row.ambassadorName}</td>
-                                        <td className="py-3 px-2 text-gray-600">{row.studentName}</td>
-                                        <td className="py-3 px-2 text-right text-gray-600">₹{row.baseFee.toLocaleString()}</td>
-                                        <td className="py-3 px-2 text-right text-green-600 font-bold">₹{row.estimatedBenefit.toLocaleString()}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        )
+        if (!canViewPartnerBenefits) {
+            redirect('/campus')
+        }
+        redirect(year ? `/campus/benefits?year=${encodeURIComponent(year)}` : '/campus/benefits')
     }
 
     // Default Home View
@@ -369,6 +317,18 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
                             </div>
                             <MoreHorizontal size={24} className="opacity-60 group-hover:opacity-100 transition-opacity" />
                         </Link>
+
+                        {canViewPartnerBenefits && (
+                            <Link href="/campus/benefits" className="group flex items-center justify-between p-5 bg-emerald-50/70 border border-emerald-200 rounded-xl hover:bg-emerald-100/70 transition-all shadow-sm">
+                                <div className="flex items-center gap-4">
+                                    <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                                        <CheckCircle2 size={20} strokeWidth={2.5} />
+                                    </div>
+                                    <span className="font-bold text-emerald-950 text-lg">Partner Benefits &amp; Payouts</span>
+                                </div>
+                                <MoreHorizontal size={24} className="text-emerald-400 group-hover:text-emerald-700 transition-colors" />
+                            </Link>
+                        )}
 
                         <Link href="/campus/students" className="group flex items-center justify-between p-5 bg-white border border-gray-100 rounded-xl hover:bg-gray-50 hover:border-gray-200 transition-all shadow-sm">
                             <div className="flex items-center gap-4">

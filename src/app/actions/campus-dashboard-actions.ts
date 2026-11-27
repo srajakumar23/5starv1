@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { canEdit, hasPermission } from '@/lib/permission-service'
 import { LeadStatus } from '@prisma/client'
 import { toLeadStatus } from '@/lib/enum-utils'
+import { getAccruedPayoutLiabilitiesInternal } from '@/app/finance-actions'
 
 // --- Helper: Verify Campus Admin Access ---
 async function verifyCampusAccess() {
@@ -1136,5 +1137,342 @@ export async function getDailyLeaderboardStats() {
     } catch (error) {
         console.error('getDailyLeaderboardStats Error:', error)
         return { success: false, error: 'Failed to fetch leaderboard' }
+    }
+}
+
+export interface CampusPartnerReferralItem {
+    leadId: number
+    studentName: string
+    parentName: string
+    parentMobile: string
+    grade: string
+    campus: string
+    leadStatus: string
+    admissionNumber: string | null
+    academicYear: string | null
+    createdAt: string
+    confirmedDate: string | null
+    earnedAmount: number
+    paidAmount: number
+    payoutStatus: string
+}
+
+export interface CampusPartnerSettlementItem {
+    id: number
+    amount: number
+    status: string
+    paymentMethod: string | null
+    benefitType: string | null
+    bankReference: string | null
+    payoutDate: string | null
+    createdAt: string
+    remarks: string | null
+    referralLeadId: number | null
+    isRegistrationRefund: boolean
+}
+
+export interface CampusPartnerBenefitRow {
+    userId: number
+    fullName: string
+    mobileNumber: string
+    role: string
+    referralCode: string
+    campusName: string
+    group: 'Group A' | 'Group B'
+    benefitPercent: number
+    totalReferrals: number
+    confirmedReferrals: number
+    pendingReferrals: number
+    totalEarned: number
+    totalSettled: number
+    outstanding: number
+    slabShare: number
+    admissionShare: number
+    donationShare: number
+    specialBonusShare: number
+    hasBankDetails: boolean
+    bankSummary: string | null
+    hasMissingFeeData: boolean
+    missingFeeCampuses: string[]
+    payoutStatus: 'PAID' | 'PARTIAL' | 'PENDING' | 'BANK_MISSING' | 'NO_EARNINGS'
+    lastPaidDate: string | null
+    referrals: CampusPartnerReferralItem[]
+    settlements: CampusPartnerSettlementItem[]
+}
+
+export interface CampusPartnerBenefitsSummary {
+    campusName: string
+    totalPartners: number
+    partnersWithAdmissions: number
+    totalReferrals: number
+    totalConfirmedAdmissions: number
+    totalEarned: number
+    totalSettled: number
+    totalOutstanding: number
+    fullyPaidPartners: number
+    pendingPayoutPartners: number
+    bankMissingPartners: number
+}
+
+// --- Read-Only Campus Partner Benefits & Payout Tracker ---
+export async function getCampusPartnerBenefits(academicYear?: string) {
+    const access = await verifyCampusAccess()
+    if (access.error) return { success: false, error: access.error }
+
+    if (!access.isSuperAdmin && !(await hasPermission('settlements'))) {
+        return { success: false, error: 'Permission Denied: Finance & Settlements access is required' }
+    }
+
+    const yearFilter = academicYear && academicYear !== 'All' ? academicYear : 'All'
+    const referralCampusWhere: any = access.isSuperAdmin
+        ? {}
+        : {
+            OR: [
+                { campusId: access.campusId },
+                { campus: { contains: access.campusName || '', mode: 'insensitive' as const } }
+            ]
+        }
+
+    if (yearFilter !== 'All') {
+        referralCampusWhere.AND = [
+            {
+                OR: [
+                    { academicYear: yearFilter },
+                    { admittedYear: yearFilter }
+                ]
+            }
+        ]
+    }
+
+    try {
+        const [ledgerRes, campusLeads] = await Promise.all([
+            getAccruedPayoutLiabilitiesInternal(
+                null,
+                yearFilter,
+                undefined,
+                access.isSuperAdmin ? undefined : access.campusId,
+                1,
+                1000
+            ),
+            prisma.referralLead.findMany({
+                where: referralCampusWhere,
+                orderBy: { createdAt: 'desc' },
+                include: {
+                    user: {
+                        select: {
+                            userId: true,
+                            fullName: true,
+                            mobileNumber: true,
+                            role: true,
+                            referralCode: true,
+                            assignedCampus: true,
+                            bankName: true,
+                            accountNumber: true,
+                            ifscCode: true,
+                            childInAchariya: true,
+                            yearFeeBenefitPercent: true
+                        }
+                    },
+                    student: {
+                        select: {
+                            fullName: true,
+                            grade: true,
+                            admissionNumber: true,
+                            campus: { select: { campusName: true } }
+                        }
+                    }
+                }
+            })
+        ])
+
+        const ledgerRows = (ledgerRes.success && ledgerRes.data) ? (ledgerRes.data as any[]) : []
+        const ledgerByUserId = new Map<number, any>()
+        ledgerRows.forEach(row => ledgerByUserId.set(row.userId, row))
+
+        const allUserIds = Array.from(new Set<number>([
+            ...ledgerRows.map(r => r.userId),
+            ...campusLeads.map(l => l.userId)
+        ]))
+
+        const rawSettlements = allUserIds.length > 0
+            ? await prisma.settlement.findMany({
+                where: { userId: { in: allUserIds } },
+                orderBy: [{ payoutDate: 'desc' }, { createdAt: 'desc' }],
+                select: {
+                    id: true,
+                    userId: true,
+                    amount: true,
+                    status: true,
+                    paymentMethod: true,
+                    benefitType: true,
+                    bankReference: true,
+                    payoutDate: true,
+                    remarks: true,
+                    createdAt: true,
+                    referralLeadId: true
+                }
+            })
+            : []
+
+        const settlementsByUser = new Map<number, CampusPartnerSettlementItem[]>()
+        for (const s of rawSettlements) {
+            const remarksLower = (s.remarks || '').toLowerCase()
+            const isRegistrationRefund = remarksLower.includes('registration') || remarksLower.includes('refund') || s.amount === 25
+            const item: CampusPartnerSettlementItem = {
+                id: s.id,
+                amount: Number(s.amount) || 0,
+                status: s.status,
+                paymentMethod: s.paymentMethod || null,
+                benefitType: s.benefitType ? String(s.benefitType) : null,
+                bankReference: s.bankReference || null,
+                payoutDate: s.payoutDate ? s.payoutDate.toISOString() : null,
+                createdAt: s.createdAt.toISOString(),
+                remarks: s.remarks || null,
+                referralLeadId: s.referralLeadId || null,
+                isRegistrationRefund
+            }
+            if (!settlementsByUser.has(s.userId)) settlementsByUser.set(s.userId, [])
+            settlementsByUser.get(s.userId)!.push(item)
+        }
+
+        const leadsByUser = new Map<number, typeof campusLeads>()
+        const userMetaById = new Map<number, any>()
+
+        for (const lead of campusLeads) {
+            if (!leadsByUser.has(lead.userId)) leadsByUser.set(lead.userId, [])
+            leadsByUser.get(lead.userId)!.push(lead)
+            if (lead.user) userMetaById.set(lead.userId, lead.user)
+        }
+
+        const partners: CampusPartnerBenefitRow[] = allUserIds.map(userId => {
+            const ledger = ledgerByUserId.get(userId)
+            const userMeta = userMetaById.get(userId)
+            const userLeads = leadsByUser.get(userId) || []
+            const userSettlements = settlementsByUser.get(userId) || []
+
+            const ledgerRefMap = new Map<number, any>()
+            if (ledger?.referrals) {
+                for (const lr of ledger.referrals) {
+                    const key = lr.leadId ?? lr.id
+                    if (key) ledgerRefMap.set(Number(key), lr)
+                }
+            }
+
+            const role = String(ledger?.role || userMeta?.role || 'Others')
+            const isGroupA = ledger?.group === 'Group A' || ((role === 'Parent' || role === 'Staff') && Boolean(userMeta?.childInAchariya))
+            const group: 'Group A' | 'Group B' = isGroupA ? 'Group A' : 'Group B'
+
+            const bankName = ledger?.bankName || userMeta?.bankName || null
+            const accountNumber = ledger?.accountNumber || userMeta?.accountNumber || null
+            const ifscCode = ledger?.ifscCode || userMeta?.ifscCode || null
+            const hasBankDetails = Boolean(accountNumber && ifscCode)
+            const maskedAcc = accountNumber && String(accountNumber).length >= 4
+                ? `••••${String(accountNumber).slice(-4)}`
+                : (accountNumber ? '••••' : null)
+            const bankSummary = hasBankDetails
+                ? `${bankName || 'Bank'} (${maskedAcc})`
+                : null
+
+            const referrals: CampusPartnerReferralItem[] = userLeads.map(lead => {
+                const enriched = ledgerRefMap.get(lead.leadId)
+                const earnedAmount = enriched
+                    ? (Number(enriched.admShareValue) || 0) +
+                      (Number(enriched.donShareValue) || 0) +
+                      (Number(enriched.referralSlabValue) || 0) +
+                      (Number(enriched.specialBonusValue) || 0)
+                    : 0
+                const paidAmount = enriched ? (Number(enriched.totalEffectivePaid) || 0) : 0
+                const rawLeadStatus = String(lead.leadStatus || 'New').replace('_', '-')
+
+                return {
+                    leadId: lead.leadId,
+                    studentName: lead.student?.fullName || lead.studentName || 'Pending Student',
+                    parentName: lead.parentName,
+                    parentMobile: lead.parentMobile,
+                    grade: lead.student?.grade || lead.gradeInterested || 'N/A',
+                    campus: lead.student?.campus?.campusName || lead.campus || access.campusName || 'Campus',
+                    leadStatus: rawLeadStatus,
+                    admissionNumber: lead.student?.admissionNumber || lead.admissionNumber || null,
+                    academicYear: lead.admittedYear || lead.academicYear || null,
+                    createdAt: lead.createdAt.toISOString(),
+                    confirmedDate: lead.confirmedDate ? lead.confirmedDate.toISOString() : null,
+                    earnedAmount,
+                    paidAmount,
+                    payoutStatus: enriched?.payoutStatus || (rawLeadStatus === 'Confirmed' || rawLeadStatus === 'Admitted' ? 'PENDING' : 'LEAD')
+                }
+            })
+
+            const confirmedReferrals = referrals.filter(r => r.leadStatus === 'Confirmed' || r.leadStatus === 'Admitted').length
+            const pendingReferrals = referrals.filter(r => r.leadStatus !== 'Confirmed' && r.leadStatus !== 'Admitted' && r.leadStatus !== 'Rejected').length
+
+            const totalEarned = Math.round(Number(ledger?.totalEarned) || 0)
+            const totalSettled = Math.round(Number(ledger?.totalSettled) || 0)
+            const outstanding = Math.max(0, Math.round(Number(ledger?.outstanding) || 0))
+
+            let payoutStatus: CampusPartnerBenefitRow['payoutStatus'] = 'NO_EARNINGS'
+            if (totalEarned > 0) {
+                if (outstanding <= 0) payoutStatus = 'PAID'
+                else if (totalSettled > 0) payoutStatus = 'PARTIAL'
+                else if (group === 'Group B' && !hasBankDetails) payoutStatus = 'BANK_MISSING'
+                else payoutStatus = 'PENDING'
+            }
+
+            const lastBenefitSettlement = userSettlements.find(s => s.status === 'Processed' && !s.isRegistrationRefund)
+            const lastPaidDate = lastBenefitSettlement ? (lastBenefitSettlement.payoutDate || lastBenefitSettlement.createdAt) : null
+
+            return {
+                userId,
+                fullName: ledger?.fullName || userMeta?.fullName || 'Unknown Partner',
+                mobileNumber: ledger?.mobileNumber || userMeta?.mobileNumber || '',
+                role,
+                referralCode: ledger?.referralCode || userMeta?.referralCode || '',
+                campusName: ledger?.campusName || userMeta?.assignedCampus || access.campusName || 'Campus',
+                group,
+                benefitPercent: Number(ledger?.benefitPercent ?? userMeta?.yearFeeBenefitPercent ?? 0),
+                totalReferrals: referrals.length,
+                confirmedReferrals,
+                pendingReferrals,
+                totalEarned,
+                totalSettled,
+                outstanding,
+                slabShare: Math.round(Number(ledger?.slabShare) || 0),
+                admissionShare: Math.round(Number(ledger?.admissionShare) || 0),
+                donationShare: Math.round(Number(ledger?.donationShare) || 0),
+                specialBonusShare: Math.round(Number(ledger?.specialBonusShare) || 0),
+                hasBankDetails,
+                bankSummary,
+                hasMissingFeeData: Boolean(ledger?.hasMissingFeeData),
+                missingFeeCampuses: Array.isArray(ledger?.missingFeeCampuses) ? ledger.missingFeeCampuses : [],
+                payoutStatus,
+                lastPaidDate,
+                referrals,
+                settlements: userSettlements
+            }
+        })
+
+        partners.sort((a, b) =>
+            (b.totalEarned - a.totalEarned) ||
+            (b.confirmedReferrals - a.confirmedReferrals) ||
+            (b.totalReferrals - a.totalReferrals)
+        )
+
+        const summary: CampusPartnerBenefitsSummary = {
+            campusName: access.campusName || 'All Campuses',
+            totalPartners: partners.length,
+            partnersWithAdmissions: partners.filter(p => p.confirmedReferrals > 0).length,
+            totalReferrals: partners.reduce((sum, p) => sum + p.totalReferrals, 0),
+            totalConfirmedAdmissions: partners.reduce((sum, p) => sum + p.confirmedReferrals, 0),
+            totalEarned: partners.reduce((sum, p) => sum + p.totalEarned, 0),
+            totalSettled: partners.reduce((sum, p) => sum + p.totalSettled, 0),
+            totalOutstanding: partners.reduce((sum, p) => sum + p.outstanding, 0),
+            fullyPaidPartners: partners.filter(p => p.payoutStatus === 'PAID').length,
+            pendingPayoutPartners: partners.filter(p => p.payoutStatus === 'PENDING' || p.payoutStatus === 'PARTIAL').length,
+            bankMissingPartners: partners.filter(p => p.payoutStatus === 'BANK_MISSING').length
+        }
+
+        return { success: true, summary, partners }
+    } catch (error) {
+        console.error('getCampusPartnerBenefits Error:', error)
+        return { success: false, error: 'Failed to load campus partner benefits' }
     }
 }

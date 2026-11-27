@@ -113,12 +113,12 @@ export default async function MainLayout({ children }: { children: React.ReactNo
             if (isSuperAdmin || permissions.paymentApproval.access) navItems.push({ label: 'Beneficiary Verification', href: '/superadmin/verification', icon: <UserCheck /> })
             
             if (isSuperAdmin || (permissions as any).marketingManager?.access) navItems.push({ label: 'Marketing Management', href: '/superadmin?view=marketing', icon: <Megaphone /> })
-            if (isSuperAdmin || permissions.settlements.access) navItems.push({ label: 'Revenue & Payouts', href: '/superadmin?view=settlements', icon: <IndianRupee /> })
+            if (isSuperAdmin) navItems.push({ label: 'Revenue & Payouts', href: '/superadmin?view=settlements', icon: <IndianRupee /> })
             
             if ((canSeePermissions || canSeeAutomation) && user.role !== 'Admission Admin') navItems.push({ label: 'Access Control', href: '/superadmin?view=permissions', icon: <Shield /> })
             if (canSeeSettings) navItems.push({ label: 'Settings', href: '/superadmin?view=settings', icon: <Settings /> })
             
-            if (isSuperAdmin || permissions.settlements.access) navItems.push({ label: 'Benefit Management', href: '/superadmin/benefits', icon: <Calculator /> })
+            if (isSuperAdmin) navItems.push({ label: 'Benefit Management', href: '/superadmin/benefits', icon: <Calculator /> })
 
             if (permissions.paymentApproval?.access) {
                 navItems.push({ label: 'Payment Approvals', href: '/superadmin/approvals', icon: <CheckCircle /> })
@@ -148,11 +148,12 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         if (!isAmbassadorRole) {
             if (permissions.supportDesk.access) navItems.push({ label: 'Support Tickets', href: '/tickets', icon: <MessageSquare /> })
             if (permissions.settlements.access) {
-                // Campus Head goes to campus-specific finance view
+                // Campus Head & Campus Admin get their dedicated read-only Partner Benefits & Payout Tracker
                 // Finance Admin already has this as 'Home', so we skip adding it again to avoid redundancy
                 if (user.role !== 'Finance Admin') {
-                    const financeHref = isCampusLevel ? '/campus?view=finance' : '/finance'
-                    navItems.push({ label: 'Finance', href: financeHref, icon: <IndianRupee /> })
+                    const financeHref = isCampusLevel ? '/campus/benefits' : '/finance'
+                    const financeLabel = isCampusLevel ? 'Partner Benefits' : 'Finance'
+                    navItems.push({ label: financeLabel, href: financeHref, icon: <IndianRupee /> })
                 }
             }
             // Audit Trail
