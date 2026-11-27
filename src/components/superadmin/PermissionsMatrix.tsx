@@ -3,6 +3,7 @@ import { BarChart3, Users, BookOpen, ShieldCheck, Building2, Download, IndianRup
 import { toast } from 'sonner'
 
 import { RolePermissions } from '@/types'
+import { PromptDialog } from '@/components/ui/PromptDialog'
 
 interface PermissionsMatrixProps {
     rolePermissionsMatrix: Record<string, RolePermissions>
@@ -86,6 +87,7 @@ export function PermissionsMatrix({
     const [hoveredRole, setHoveredRole] = useState<string | null>(null)
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
     const [searchQuery, setSearchQuery] = useState('')
+    const [copyTargetRole, setCopyTargetRole] = useState<string | null>(null)
 
     const filteredSections = SECTIONS.map(section => ({
         ...section,
@@ -235,17 +237,7 @@ export function PermissionsMatrix({
                                                 </div>
                                                 <div className="flex gap-1">
                                                     <button
-                                                        onClick={() => {
-                                                            const sourceRole = window.prompt(`Copy permissions TO ${role} FROM which role? (${ROLES.filter(r => r !== role).join(', ')})`)
-                                                            if (sourceRole && ROLES.includes(sourceRole)) {
-                                                                const newMatrix = { ...rolePermissionsMatrix }
-                                                                newMatrix[role] = JSON.parse(JSON.stringify(rolePermissionsMatrix[sourceRole]))
-                                                                onChange(newMatrix)
-                                                                toast.success(`Copied permissions from ${sourceRole} to ${role}`)
-                                                            } else if (sourceRole) {
-                                                                toast.error('Invalid role name')
-                                                            }
-                                                        }}
+                                                        onClick={() => setCopyTargetRole(role)}
                                                         title={`Copy from another role to ${role}`}
                                                         className={`p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ${hoveredRole === role ? 'opacity-100' : 'opacity-0'}`}
                                                     >
@@ -289,6 +281,29 @@ export function PermissionsMatrix({
                     </table>
                 </div>
             </div>
+
+            <PromptDialog
+                isOpen={Boolean(copyTargetRole)}
+                title={`Copy Permissions to ${copyTargetRole || ''}`}
+                description={`Enter source role name (${ROLES.filter(r => r !== copyTargetRole).join(', ')})`}
+                placeholder="e.g. Super Admin"
+                confirmText="Copy Permissions"
+                variant="info"
+                onCancel={() => setCopyTargetRole(null)}
+                onConfirm={(inputRole) => {
+                    if (!copyTargetRole) return
+                    const matched = ROLES.find(r => r.toLowerCase() === inputRole.trim().toLowerCase())
+                    if (!matched) {
+                        toast.error('Invalid role name')
+                        return
+                    }
+                    const newMatrix = { ...rolePermissionsMatrix }
+                    newMatrix[copyTargetRole] = JSON.parse(JSON.stringify(rolePermissionsMatrix[matched]))
+                    onChange(newMatrix)
+                    toast.success(`Copied permissions from ${matched} to ${copyTargetRole}`)
+                    setCopyTargetRole(null)
+                }}
+            />
         </div>
     )
 }

@@ -1,5 +1,4 @@
 const MSG91_CONFIG = {
-    authKey: "485538AfzLQYaH69672145P1",
     senderId: "ACHAPP",
     templates: {
         registration: "696747dca54c0d654f2f9603",
@@ -9,6 +8,12 @@ const MSG91_CONFIG = {
 }
 
 async function testMsg91() {
+    const authKey = process.env.MSG91_AUTH_KEY
+    if (!authKey) {
+        console.error('Missing MSG91_AUTH_KEY environment variable')
+        process.exit(1)
+    }
+
     const mobile = process.argv[2]
     const flow = process.argv[3] || 'registration'
 
@@ -34,7 +39,7 @@ async function testMsg91() {
     const url = "https://control.msg91.com/api/v5/otp?" + new URLSearchParams({
         template_id: templateId,
         mobile: '91' + mobile,
-        authkey: process.env.MSG91_AUTH_KEY || MSG91_CONFIG.authKey,
+        authkey: authKey,
         OTP: otp // UPDATED to uppercase to match DLT
     })
 

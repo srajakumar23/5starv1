@@ -30,6 +30,11 @@ export type AutomationRuleData = {
 
 export async function getAutomationRules() {
     try {
+        const user = await getCurrentUser()
+        if (!user || (user.role !== 'Super Admin' && !user.role.includes('Admin'))) {
+            return { success: false, error: 'Unauthorized', data: [] }
+        }
+
         const rules = await prisma.automationRule.findMany({
             orderBy: { createdAt: 'desc' }
         })

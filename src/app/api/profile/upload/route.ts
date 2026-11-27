@@ -14,8 +14,17 @@ export async function POST(request: Request) {
         const userType = session.userType as 'user' | 'admin'
         const { image } = await request.json()
 
-        if (!image) {
+        if (!image || typeof image !== 'string') {
             return NextResponse.json({ error: 'No image provided' }, { status: 400 })
+        }
+
+        if (!/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(image)) {
+            return NextResponse.json({ error: 'Invalid image format. Allowed: JPEG, PNG, WebP, GIF.' }, { status: 400 })
+        }
+
+        // Guard against raw multi-MB Base64 payloads bloating Postgres TOAST storage
+        if (image.length > 2_000_000) {
+            return NextResponse.json({ error: 'Image is too large. Please choose a smaller photo.' }, { status: 400 })
         }
 
         // Update based on user type

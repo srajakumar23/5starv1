@@ -2000,6 +2000,11 @@ export async function triggerWeeklyKPIReport(email?: string) {
 
 // Get user specific referrals for detail view
 export async function getUserReferrals(userId: number) {
+    const currentUser = await getCurrentUser()
+    if (!currentUser || (Number(currentUser.userId) !== userId && !currentUser.role.includes('Admin') && !currentUser.role.includes('Campus'))) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     try {
         const referrals = await prisma.referralLead.findMany({
             where: { userId },

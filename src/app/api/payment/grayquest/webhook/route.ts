@@ -8,8 +8,20 @@ import { ensureUserReferralCode } from "@/lib/referral-service";
  */
 export async function POST(req: Request) {
     try {
+        const webhookSecret = process.env.GRAYQUEST_WEBHOOK_SECRET
+        if (webhookSecret) {
+            const providedSecret =
+                req.headers.get("x-grayquest-signature") ||
+                req.headers.get("x-webhook-secret") ||
+                req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+            if (providedSecret !== webhookSecret) {
+                console.error("[GQ WEBHOOK] Unauthorized signature/secret mismatch");
+                return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            }
+        }
+
         const body = await req.json();
-        console.log("[GQ WEBHOOK] Received payload:", JSON.stringify(body, null, 2));
+        console.log("[GQ WEBHOOK] Received payload for order:", body.order_id || body.data?.order_id || body.client_reference_id);
 
         // Note: GrayQuest payload structure may vary based on version.
         // We look for order_id and status in common locations.
@@ -21,11 +33,28 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "No order_id found" }, { status: 400 });
         }
 
+        const existingPayment = await prisma.payment.findUnique({
+            where: { orderId },
+            select: { orderId: true, userId: true, orderStatus: true, paymentStatus: true }
+        });
+
+        if (!existingPayment) {
+            console.warn(`[GQ WEBHOOK] Unknown order_id rejected: ${orderId}`);
+            return NextResponse.json({ error: "Order not found" }, { status: 404 });
+        }
+
         // Logic for success
         // GrayQuest success statuses: "success", "paid", "captured" (lowercase or uppercase)
         const isSuccess = status && ["success", "paid", "captured", "PAID", "SUCCESS"].includes(status.toString());
 
         if (isSuccess) {
+            if (existingPayment.orderStatus === "PAID" || existingPayment.paymentStatus === "Success") {
+                if (existingPayment.userId) {
+                    await ensureUserReferralCode(existingPayment.userId);
+                }
+                return NextResponse.json({ success: true, alreadyProcessed: true });
+            }
+
             console.log(`[GQ WEBHOOK] Processing SUCCESS for order: ${orderId}`);
 
             // 1. Update Payment Record

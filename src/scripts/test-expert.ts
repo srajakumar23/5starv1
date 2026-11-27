@@ -11,7 +11,10 @@ async function runFinalTest() {
     const buttonVariables: string[] = []
 
     try {
-        const activeAuthKey = "485538ATG9yVd1C69a4475aP1" // Proven to succeed at 9:58 PM
+        const activeAuthKey = process.env.MSG91_AUTH_KEY
+        if (!activeAuthKey) {
+            throw new Error('MSG91_AUTH_KEY is required in environment variables')
+        }
         const url = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/"
         
         const payload: any = {

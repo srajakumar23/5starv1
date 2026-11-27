@@ -92,33 +92,69 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
     // Use projectedValue passed from server side calculations (Matches Dashboard Projected Growth)
     const totalEarned = user.projectedValue !== undefined ? user.projectedValue : 0
 
+    const compressProfileImage = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onerror = () => reject(new Error('Failed to read image file'))
+            reader.onloadend = () => {
+                const rawDataUrl = reader.result as string
+                if (!rawDataUrl || typeof window === 'undefined') {
+                    resolve(rawDataUrl)
+                    return
+                }
+                const img = new window.Image()
+                img.onload = () => {
+                    const maxDim = 400
+                    const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1))
+                    const targetW = Math.max(1, Math.round(img.width * scale))
+                    const targetH = Math.max(1, Math.round(img.height * scale))
+                    const canvas = document.createElement('canvas')
+                    canvas.width = targetW
+                    canvas.height = targetH
+                    const ctx = canvas.getContext('2d')
+                    if (!ctx) {
+                        resolve(rawDataUrl)
+                        return
+                    }
+                    ctx.drawImage(img, 0, 0, targetW, targetH)
+                    resolve(canvas.toDataURL('image/jpeg', 0.82))
+                }
+                img.onerror = () => resolve(rawDataUrl)
+                img.src = rawDataUrl
+            }
+            reader.readAsDataURL(file)
+        })
+    }
+
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file) return
 
-        const reader = new FileReader()
-        reader.onloadend = async () => {
-            const base64String = reader.result as string
-            setUploading(true)
-            try {
-                const response = await fetch('/api/profile/upload', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: base64String })
-                })
-                if (response.ok) {
-                    setProfileImage(base64String)
-                    toast.success('Photo updated successfully')
-                } else {
-                    toast.error('Failed to upload photo')
-                }
-            } catch (error) {
-                toast.error('Error uploading photo')
-            } finally {
-                setUploading(false)
-            }
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please select a valid image file')
+            return
         }
-        reader.readAsDataURL(file)
+
+        setUploading(true)
+        try {
+            const optimizedImage = await compressProfileImage(file)
+            const response = await fetch('/api/profile/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: optimizedImage })
+            })
+            if (response.ok) {
+                setProfileImage(optimizedImage)
+                toast.success('Photo updated successfully')
+            } else {
+                const errData = await response.json().catch(() => ({}))
+                toast.error(errData.error || 'Failed to upload photo')
+            }
+        } catch (error) {
+            toast.error('Error uploading photo')
+        } finally {
+            setUploading(false)
+        }
     }
 
     const handleSave = async () => {

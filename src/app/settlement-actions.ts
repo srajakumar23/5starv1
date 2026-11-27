@@ -2,6 +2,7 @@
 
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth-service'
+import { hasPermission } from '@/lib/permission-service'
 import { logAction, logSecurityAlert } from '@/lib/audit-logger'
 import { revalidatePath } from 'next/cache'
 import { transactionIdSchema } from '@/lib/validators'
@@ -10,6 +11,11 @@ import { transactionIdSchema } from '@/lib/validators'
  * Fetches all settlement records with associated user details.
  */
 export async function getSettlements() {
+    const admin = await getCurrentUser()
+    if (!admin || (admin.role !== 'Super Admin' && admin.role !== 'Finance Admin' && !(await hasPermission('settlements')))) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     try {
         const settlements = await prisma.settlement.findMany({
             include: {
@@ -52,6 +58,11 @@ export async function getSettlements() {
  * Fetches settlement records for a specific user.
  */
 export async function getUserSettlements(userId: number) {
+    const currentUser = await getCurrentUser()
+    if (!currentUser || (Number(currentUser.userId) !== userId && !currentUser.role.includes('Admin') && !currentUser.role.includes('Campus'))) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     try {
         const settlements = await prisma.settlement.findMany({
             where: { userId },
@@ -71,6 +82,11 @@ export async function getUserSettlements(userId: number) {
  * Rule: (StudentFee * BenefitPercent / 100) * ConfirmedCount - TotalPreviouslySettled
  */
 export async function calculatePendingSettlement(userId: number) {
+    const currentUser = await getCurrentUser()
+    if (!currentUser || (Number(currentUser.userId) !== userId && !currentUser.role.includes('Admin') && !currentUser.role.includes('Campus'))) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     try {
         const user = await prisma.user.findUnique({
             where: { userId },

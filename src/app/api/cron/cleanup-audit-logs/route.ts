@@ -22,19 +22,30 @@ export async function GET(request: Request) {
 
         console.log(`[Cleanup] Deleting audit logs older than ${retentionDays} days (before ${cutoffDate.toISOString()})`)
 
-        const result = await prisma.activityLog.deleteMany({
-            where: {
-                createdAt: {
-                    lt: cutoffDate
+        const now = new Date()
+        const [result, rateLimitResult] = await Promise.all([
+            prisma.activityLog.deleteMany({
+                where: {
+                    createdAt: {
+                        lt: cutoffDate
+                    }
                 }
-            }
-        })
+            }),
+            prisma.rateLimit.deleteMany({
+                where: {
+                    resetAt: {
+                        lt: now
+                    }
+                }
+            })
+        ])
 
         return NextResponse.json({
             success: true,
             deletedCount: result.count,
+            deletedRateLimits: rateLimitResult.count,
             cutoffDate: cutoffDate.toISOString(),
-            message: `Successfully pruned ${result.count} old audit logs.`
+            message: `Successfully pruned ${result.count} old audit logs and ${rateLimitResult.count} expired rate-limit entries.`
         })
 
     } catch (error: any) {

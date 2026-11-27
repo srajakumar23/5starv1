@@ -3,8 +3,6 @@ import prisma from '@/lib/prisma'
 import fs from 'fs'
 import path from 'path'
 
-console.log("\n\n🚀 !!! [CRITICAL] WHATSAPP SERVICE REBOOTED - NEW 2-VAR LOGIC ACTIVE !!! 🚀\n\n")
-
 interface WhatsAppResponse {
     success: boolean
     messageId?: string
