@@ -80,6 +80,38 @@ export function ExportDateRangeModal({
         }
     }, [isOpen, isExporting, onClose])
 
+    // 1-click Bank NEFT Preset: detects standard payout/refund bank columns cleanly across all Finance tables
+    const neftColumnIds = useMemo(() => {
+        const ids = new Set(columns.map(c => c.id))
+        const hasBankFields =
+            ids.has('bankName') &&
+            (ids.has('accountNo') || ids.has('accountNumber')) &&
+            (ids.has('ifsc') || ids.has('ifscCode'))
+
+        if (!hasBankFields) return []
+
+        const preferredOrder = [
+            'fullName',
+            'name',
+            'mobile',
+            'bankName',
+            'accountNo',
+            'accountNumber',
+            'ifsc',
+            'ifscCode',
+            'amount',
+            'remaining',
+            'bankRef'
+        ]
+        return preferredOrder.filter(id => ids.has(id))
+    }, [columns])
+
+    const isNeftPresetActive = useMemo(() => {
+        if (neftColumnIds.length === 0 || selectedColumns.length !== neftColumnIds.length) return false
+        const selectedSet = new Set(selectedColumns)
+        return neftColumnIds.every(id => selectedSet.has(id))
+    }, [neftColumnIds, selectedColumns])
+
     if (!mounted) return null
 
     const applyDaysPreset = (days: 7 | 30 | 90) => {
@@ -126,38 +158,6 @@ export function ExportDateRangeModal({
     }
 
     const hasNoSelectedColumns = columns.length > 0 && selectedColumns.length === 0
-
-    // 1-click Bank NEFT Preset: detects standard payout/refund bank columns cleanly across all Finance tables
-    const neftColumnIds = useMemo(() => {
-        const ids = new Set(columns.map(c => c.id))
-        const hasBankFields =
-            ids.has('bankName') &&
-            (ids.has('accountNo') || ids.has('accountNumber')) &&
-            (ids.has('ifsc') || ids.has('ifscCode'))
-
-        if (!hasBankFields) return []
-
-        const preferredOrder = [
-            'fullName',
-            'name',
-            'mobile',
-            'bankName',
-            'accountNo',
-            'accountNumber',
-            'ifsc',
-            'ifscCode',
-            'amount',
-            'remaining',
-            'bankRef'
-        ]
-        return preferredOrder.filter(id => ids.has(id))
-    }, [columns])
-
-    const isNeftPresetActive = useMemo(() => {
-        if (neftColumnIds.length === 0 || selectedColumns.length !== neftColumnIds.length) return false
-        const selectedSet = new Set(selectedColumns)
-        return neftColumnIds.every(id => selectedSet.has(id))
-    }, [neftColumnIds, selectedColumns])
 
     const modalContent = (
         <AnimatePresence>
