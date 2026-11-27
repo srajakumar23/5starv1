@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { MessageSquare, X, Edit3, ShieldAlert, AlertCircle, Info } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 interface PromptDialogProps {
     isOpen: boolean
@@ -29,11 +30,30 @@ export function PromptDialog({
     isLoading = false,
     initialValue = ''
 }: PromptDialogProps) {
+    const [mounted, setMounted] = useState(false)
     const [value, setValue] = useState(initialValue)
+
+    useEffect(() => {
+        setMounted(true)
+    }, [])
 
     useEffect(() => {
         if (isOpen) setValue(initialValue)
     }, [isOpen, initialValue])
+
+    useEffect(() => {
+        if (!isOpen) return
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isLoading) onCancel()
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.body.style.overflow = prevOverflow
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [isOpen, isLoading, onCancel])
 
     const variantConfig = {
         danger: {
@@ -72,16 +92,18 @@ export function PromptDialog({
 
     const config = variantConfig[variant]
 
-    return (
+    if (!mounted) return null
+
+    return createPortal(
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
                     {/* Backdrop */}
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        onClick={onCancel}
+                        onClick={() => !isLoading && onCancel()}
                         className="absolute inset-0 bg-gray-900/60 backdrop-blur-md"
                     />
 
@@ -91,7 +113,7 @@ export function PromptDialog({
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: 20 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                        className="bg-white w-full max-w-sm rounded-[42px] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] overflow-hidden relative border border-gray-100/50"
+                        className="bg-white w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-[42px] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] relative border border-gray-100/50"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Top Decoration */}
@@ -155,6 +177,7 @@ export function PromptDialog({
                     </motion.div>
                 </div>
             )}
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body
     )
 }

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { X, Search, Calculator, User, ArrowRight, Loader2, Info, CheckCircle2 } from 'lucide-react'
 import { calculatePendingSettlement, createSettlement } from '@/app/settlement-actions'
 import { toast } from 'sonner'
@@ -21,6 +22,7 @@ interface SettlementCalculatorModalProps {
 }
 
 export function SettlementCalculatorModal({ isOpen, onClose, users, onSuccess }: SettlementCalculatorModalProps) {
+    const [mounted, setMounted] = useState(false)
     const [search, setSearch] = useState('')
     const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null)
     const [calculation, setCalculation] = useState<{
@@ -93,18 +95,42 @@ export function SettlementCalculatorModal({ isOpen, onClose, users, onSuccess }:
         }
     }
 
-    const handleClose = () => {
+    const handleClose = useCallback(() => {
         setSearch('')
         setSelectedUser(null)
         setCalculation(null)
         onClose()
-    }
+    }, [onClose])
 
-    if (!isOpen) return null
+    useEffect(() => {
+        setMounted(true)
+    }, [])
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+    useEffect(() => {
+        if (!isOpen) return
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isCreating) handleClose()
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.body.style.overflow = prevOverflow
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [isOpen, isCreating, handleClose])
+
+    if (!mounted || !isOpen) return null
+
+    return createPortal(
+        <div
+            onClick={() => !isCreating && handleClose()}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-300"
+        >
+            <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]"
+            >
                 {/* Header */}
                 <div className="bg-gray-900 p-8 text-white relative flex-shrink-0">
                     <button
@@ -241,6 +267,7 @@ export function SettlementCalculatorModal({ isOpen, onClose, users, onSuccess }:
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     )
 }

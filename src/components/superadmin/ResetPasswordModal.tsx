@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { X } from 'lucide-react'
 import { adminResetPassword } from '@/app/superadmin-actions'
@@ -18,12 +19,31 @@ interface ResetPasswordModalProps {
 }
 
 export function ResetPasswordModal({ isOpen, onClose, target }: ResetPasswordModalProps) {
+    const [mounted, setMounted] = useState(false)
     const [newPassword, setNewPassword] = useState('')
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
+        setMounted(true)
+    }, [])
+
+    useEffect(() => {
         if (isOpen) setNewPassword('')
     }, [isOpen])
+
+    useEffect(() => {
+        if (!isOpen || !target) return
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !loading) onClose()
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.body.style.overflow = prevOverflow
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [isOpen, target, loading, onClose])
 
     const handleExecuteReset = async () => {
         if (!target || !newPassword) return
@@ -48,11 +68,17 @@ export function ResetPasswordModal({ isOpen, onClose, target }: ResetPasswordMod
         }
     }
 
-    if (!isOpen || !target) return null
+    if (!mounted || !isOpen || !target) return null
 
-    return (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-[400px] shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+    return createPortal(
+        <div
+            onClick={() => !loading && onClose()}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
+        >
+            <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl p-6 w-full max-w-[400px] max-h-[90vh] overflow-y-auto shadow-2xl relative animate-in fade-in zoom-in-95 duration-200"
+            >
                 <div className="flex justify-between items-center mb-5">
                     <h3 className="text-lg font-black italic text-slate-800 uppercase tracking-tight">Reset Password</h3>
                     <button 
@@ -99,6 +125,7 @@ export function ResetPasswordModal({ isOpen, onClose, target }: ResetPasswordMod
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     )
 }

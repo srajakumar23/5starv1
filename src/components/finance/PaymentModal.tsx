@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, CheckCircle, CreditCard, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { processPayout, bulkProcessPayoutsById } from '@/app/finance-actions'
@@ -14,11 +15,30 @@ interface PaymentModalProps {
 }
 
 export function PaymentModal({ isOpen, onClose, settlement, selectedIds, onSuccess }: PaymentModalProps) {
+    const [mounted, setMounted] = useState(false)
     const [step, setStep] = useState<'confirm' | 'processing' | 'success'>('confirm')
     const [txnId, setTxnId] = useState('')
     const [remarks, setRemarks] = useState('')
 
-    if (!isOpen || !settlement) return null
+    useEffect(() => {
+        setMounted(true)
+    }, [])
+
+    useEffect(() => {
+        if (!isOpen || !settlement) return
+        const prevOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && step !== 'processing') onClose()
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.body.style.overflow = prevOverflow
+            window.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [isOpen, settlement, step, onClose])
+
+    if (!mounted || !isOpen || !settlement) return null
 
     const isBulk = settlement.id === -1
 
@@ -55,9 +75,15 @@ export function PaymentModal({ isOpen, onClose, settlement, selectedIds, onSucce
         }
     }
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 dark:border-gray-800">
+    return createPortal(
+        <div
+            onClick={() => step !== 'processing' && onClose()}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+        >
+            <div
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-100 dark:border-gray-800"
+            >
 
                 {/* Header with Fake Gateway Branding */}
                 <div className="bg-gray-50 dark:bg-gray-800 p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
@@ -150,6 +176,7 @@ export function PaymentModal({ isOpen, onClose, settlement, selectedIds, onSucce
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     )
 }

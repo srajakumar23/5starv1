@@ -437,14 +437,46 @@ export async function exportRefunds(startDate: Date, endDate: Date, selectedColu
         if (type === 'Ready') {
             const res = await getUsersReadyForRefund(academicYear)
             if (res.success && res.data) {
+                const q = search?.trim().toLowerCase()
                 users = res.data.filter((u: any) => {
                     const created = new Date(u.createdAt)
-                    return created >= start && created <= end
+                    if (created < start || created > end) return false
+                    if (!q) return true
+                    return [
+                        u.fullName,
+                        u.mobileNumber,
+                        u.campusName,
+                        u.assignedCampus,
+                        u.bankName,
+                        u.accountNumber,
+                        u.ifscCode
+                    ].some(v => typeof v === 'string' && v.toLowerCase().includes(q))
                 })
             }
         } else {
             const { filter: scopeFilter } = await getScopeFilter('settlements', { campusNameField: 'assignedCampus' })
             if (!scopeFilter) return { success: false, error: 'Access Denied' }
+
+            const andConditions: any[] = [
+                {
+                    OR: [
+                        { payments: { some: { adminRemarks: { contains: 'REFUNDED', mode: 'insensitive' } } } },
+                        { settlements: { some: { amount: 25, status: 'Processed' } } }
+                    ]
+                }
+            ]
+
+            if (search) {
+                andConditions.push({
+                    OR: [
+                        { fullName: { contains: search, mode: 'insensitive' } },
+                        { mobileNumber: { contains: search, mode: 'insensitive' } },
+                        { referralCode: { contains: search, mode: 'insensitive' } },
+                        { childName: { contains: search, mode: 'insensitive' } },
+                        { childEprNo: { contains: search, mode: 'insensitive' } }
+                    ]
+                })
+            }
 
             users = await prisma.user.findMany({
                 where: {
@@ -452,19 +484,7 @@ export async function exportRefunds(startDate: Date, endDate: Date, selectedColu
                     paymentAmount: { gt: 0 },
                     createdAt: { gte: start, lte: end },
                     ...(academicYear && academicYear !== 'All' ? { academicYear } : {}),
-                    OR: [
-                        { payments: { some: { adminRemarks: { contains: 'REFUNDED', mode: 'insensitive' } } } },
-                        { settlements: { some: { amount: 25, status: 'Processed' } } }
-                    ],
-                    ...(search ? {
-                        OR: [
-                            { fullName: { contains: search, mode: 'insensitive' } },
-                            { mobileNumber: { contains: search, mode: 'insensitive' } },
-                            { referralCode: { contains: search, mode: 'insensitive' } },
-                            { childName: { contains: search, mode: 'insensitive' } },
-                            { childEprNo: { contains: search, mode: 'insensitive' } }
-                        ]
-                    } : {})
+                    AND: andConditions
                 },
                 include: {
                     payments: {
@@ -483,23 +503,65 @@ export async function exportRefunds(startDate: Date, endDate: Date, selectedColu
 
         const safeString = (str: string | null | undefined) => `"${(String(str || '')).replace(/"/g, '""')}"`
 
+        const getDecryptedLegacyBank = (u: any) => {
+            if (!u.bankAccountDetails) return ''
+            return decrypt(u.bankAccountDetails) || ''
+        }
+
+        const formatRefundDate = (u: any) => {
+            if (type === 'Ready') return format(new Date(u.createdAt), 'yyyy-MM-dd')
+            const settlement = u.settlements?.[0]
+            return settlement?.payoutDate ? format(new Date(settlement.payoutDate), 'yyyy-MM-dd') : 'Processed'
+        }
+
+        const refundDateCol = {
+            header: type === 'Ready' ? 'Registration Date' : 'Refund Date',
+            accessor: formatRefundDate
+        }
+
         const colDefs: Record<string, { header: string, accessor: (u: any) => string | number | null }> = {
             'fullName': { header: 'Full Name', accessor: (u) => u.fullName },
             'mobile': { header: 'Mobile Number', accessor: (u) => `="${u.mobileNumber}"` },
+            'role': { header: 'Role', accessor: (u) => u.role || 'N/A' },
             'campus': { header: 'Campus', accessor: (u) => u.campusName || u.assignedCampus || 'N/A' },
-            'amount': { header: 'Refund Amount', accessor: (u) => 25 },
-            'status': { header: 'Refund Status', accessor: (u) => type === 'Ready' ? 'Pending' : 'Processed' },
-            'payoutDate': {
-                header: type === 'Ready' ? 'Registration Date' : 'Refund Date',
+            'amount': { header: 'Refund Amount', accessor: () => 25 },
+            'status': { header: 'Refund Status', accessor: () => type === 'Ready' ? 'Pending' : 'Processed' },
+            'payoutDate': refundDateCol,
+            'refundDate': refundDateCol,
+            'transactionId': {
+                header: 'Original Transaction',
                 accessor: (u) => {
-                    if (type === 'Ready') return format(new Date(u.createdAt), 'yyyy-MM-dd')
-                    const settlement = u.settlements?.[0]
-                    return settlement?.payoutDate ? format(new Date(settlement.payoutDate), 'yyyy-MM-dd') : 'Processed'
+                    const tx = u.transactionId || u.payments?.[0]?.transactionId
+                    return tx ? `="${tx}"` : 'N/A'
                 }
             },
-            'bankName': { header: 'Bank Name', accessor: (u) => u.bankName || 'N/A' },
-            'accountNo': { header: 'Account Number', accessor: (u) => u.accountNumber ? `="${u.accountNumber}"` : 'N/A' },
-            'ifsc': { header: 'IFSC Code', accessor: (u) => u.ifscCode || 'N/A' },
+            'bankName': {
+                header: 'Bank Name',
+                accessor: (u) => {
+                    if (u.bankName) return u.bankName
+                    const legacy = getDecryptedLegacyBank(u)
+                    return legacy ? (legacy.split('-')[0]?.trim() || legacy) : 'N/A'
+                }
+            },
+            'accountNo': {
+                header: 'Account Number',
+                accessor: (u) => {
+                    if (u.accountNumber) return `="${u.accountNumber}"`
+                    const legacy = getDecryptedLegacyBank(u)
+                    const parts = legacy.split('-')
+                    if (parts.length > 1 && parts[1]?.trim()) return `="${parts[1].trim()}"`
+                    return 'N/A'
+                }
+            },
+            'ifsc': {
+                header: 'IFSC Code',
+                accessor: (u) => {
+                    if (u.ifscCode) return u.ifscCode
+                    const legacy = getDecryptedLegacyBank(u)
+                    const match = legacy.match(/\((.*?)\)/)
+                    return match ? match[1] : (legacy.split('-')[2]?.trim() || 'N/A')
+                }
+            },
             'bankRef': { header: 'Bank Ref (UTR)', accessor: (u) => u.settlements?.[0]?.bankReference ? `="${u.settlements[0].bankReference}"` : 'N/A' },
             'remarks': { header: 'Audit Remarks', accessor: (u) => u.settlements?.[0]?.remarks || u.payments?.[0]?.adminRemarks || '-' }
         }

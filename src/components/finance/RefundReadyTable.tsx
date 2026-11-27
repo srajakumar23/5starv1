@@ -10,6 +10,19 @@ import { FileDown } from 'lucide-react'
 import { ExportDateRangeModal } from './ExportDateRangeModal'
 import { exportRefunds } from '@/app/export-actions'
 
+const EXPORT_COLUMNS = [
+    { id: 'fullName', label: 'Full Name', defaultChecked: true },
+    { id: 'mobile', label: 'Mobile Number', defaultChecked: true },
+    { id: 'role', label: 'Role', defaultChecked: true },
+    { id: 'campus', label: 'Campus', defaultChecked: true },
+    { id: 'amount', label: 'Refund Amount', defaultChecked: true },
+    { id: 'bankName', label: 'Bank Name', defaultChecked: true },
+    { id: 'accountNo', label: 'Account Number', defaultChecked: true },
+    { id: 'ifsc', label: 'IFSC Code', defaultChecked: true },
+    { id: 'status', label: 'Refund Status', defaultChecked: true },
+    { id: 'payoutDate', label: 'Registration Date', defaultChecked: true }
+]
+
 interface RefundUser {
     userId: number
     fullName: string
@@ -53,14 +66,6 @@ export function RefundReadyTable({ data, totalResults = 0, currentPage = 1, onPa
             toast.error(res.error || 'Failed to export')
         }
     }
-
-    const exportColumns = [
-        { id: 'fullName', label: 'Full Name', defaultChecked: true },
-        { id: 'mobile', label: 'Mobile Number', defaultChecked: true },
-        { id: 'campus', label: 'Campus', defaultChecked: true },
-        { id: 'amount', label: 'Refund Amount', defaultChecked: true },
-        { id: 'status', label: 'Refund Status', defaultChecked: true }
-    ]
 
     const router = useRouter()
     const [isInitiating, setIsInitiating] = useState(false)
@@ -183,7 +188,7 @@ export function RefundReadyTable({ data, totalResults = 0, currentPage = 1, onPa
                 onClose={() => setShowExportModal(false)}
                 onExport={handleServerExport}
                 title="Export Ready for Refund"
-                columns={exportColumns}
+                columns={EXPORT_COLUMNS}
             />
         </div>
     )

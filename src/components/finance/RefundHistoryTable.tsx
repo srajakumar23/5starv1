@@ -8,6 +8,21 @@ import { ExportDateRangeModal } from './ExportDateRangeModal'
 import { exportRefunds } from '@/app/export-actions'
 import { toast } from 'sonner'
 
+const EXPORT_COLUMNS = [
+    { id: 'fullName', label: 'Full Name', defaultChecked: true },
+    { id: 'mobile', label: 'Mobile Number', defaultChecked: true },
+    { id: 'role', label: 'Role', defaultChecked: true },
+    { id: 'campus', label: 'Campus', defaultChecked: true },
+    { id: 'amount', label: 'Refund Amount', defaultChecked: true },
+    { id: 'bankName', label: 'Bank Name', defaultChecked: true },
+    { id: 'accountNo', label: 'Account Number', defaultChecked: true },
+    { id: 'ifsc', label: 'IFSC Code', defaultChecked: true },
+    { id: 'transactionId', label: 'Original Transaction', defaultChecked: true },
+    { id: 'refundDate', label: 'Refund Date', defaultChecked: true },
+    { id: 'bankRef', label: 'Bank Reference', defaultChecked: true },
+    { id: 'remarks', label: 'Remarks', defaultChecked: true }
+]
+
 interface Registration {
     userId: number
     fullName: string
@@ -67,18 +82,6 @@ export function RefundHistoryTable({ data, totalResults = 0, currentPage = 1, on
             toast.error(res.error || 'Failed to export')
         }
     }
-
-    const exportColumns = [
-        { id: 'fullName', label: 'Full Name', defaultChecked: true },
-        { id: 'mobile', label: 'Mobile Number', defaultChecked: true },
-        { id: 'role', label: 'Role', defaultChecked: true },
-        { id: 'campus', label: 'Campus', defaultChecked: true },
-        { id: 'amount', label: 'Refund Amount', defaultChecked: true },
-        { id: 'transactionId', label: 'Original Transaction', defaultChecked: true },
-        { id: 'refundDate', label: 'Refund Date', defaultChecked: true },
-        { id: 'bankRef', label: 'Bank Reference', defaultChecked: true },
-        { id: 'remarks', label: 'Remarks', defaultChecked: true }
-    ]
 
     const columns = [
         {
@@ -189,7 +192,7 @@ export function RefundHistoryTable({ data, totalResults = 0, currentPage = 1, on
                 onClose={() => setShowExportModal(false)}
                 onExport={handleServerExport}
                 title="Export Refund History"
-                columns={exportColumns}
+                columns={EXPORT_COLUMNS}
             />
         </div>
     )
