@@ -3,6 +3,7 @@ import { hasPermission, getMyPermissions } from '@/lib/permission-service'
 import { getSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
+import prisma from '@/lib/prisma'
 import { isIpWhitelisted } from '@/lib/security'
 import { getSystemAnalytics, getCampusComparison, getAllAdmins, getUserGrowthTrend, getAllStudents } from '@/app/superadmin-actions'
 import { getAdminMarketingAssets } from '@/app/marketing-actions'
@@ -114,7 +115,7 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
     let studentsPromise: Promise<any> = Promise.resolve([])
     let marketingAssetsPromise: Promise<any> = Promise.resolve({ assets: [] })
     let growthTrendPromise: Promise<any> = Promise.resolve([])
-    let deepTrendsPromise: Promise<any> = Promise.resolve({ success: true, trends: null })
+    let opsPulsePromise: Promise<{ pendingApprovals: number; pendingPayouts: number }> = Promise.resolve({ pendingApprovals: 0, pendingPayouts: 0 })
     let referralDataPromise: Promise<any> = Promise.resolve({ referrals: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } })
     let urgentTicketCountPromise: Promise<any> = Promise.resolve(0)
     let systemSettingsPromise: Promise<any> = Promise.resolve({})
@@ -129,8 +130,17 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
         analyticsPromise = getSystemAnalytics('all', selectedYear, selectedSource)
         campusComparisonPromise = getCampusComparison('all', selectedYear, selectedSource)
         growthTrendPromise = getUserGrowthTrend()
-        deepTrendsPromise = import('@/app/analytics-trends-actions').then(m => m.getAnalyticsTrends())
-        // Pre-fetch users for search? checking getAllUsers... it's heavy.
+        opsPulsePromise = Promise.all([
+            prisma.payment.count({
+                where: {
+                    paymentMethod: 'MANUAL_QR',
+                    OR: [{ orderStatus: 'PENDING_APPROVAL' }, { paymentStatus: 'Pending Approval' }]
+                }
+            }),
+            prisma.settlement.count({
+                where: { status: 'Pending' }
+            })
+        ]).then(([pendingApprovals, pendingPayouts]) => ({ pendingApprovals, pendingPayouts }))
     }
 
     if (initialView === 'students') {
@@ -161,13 +171,13 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
     let students = []
     let marketingAssets = { assets: [] }
     let growthTrend = []
-    let deepTrends = { success: true, trends: null }
+    let opsPulseCounts = { pendingApprovals: 0, pendingPayouts: 0 }
     let referralData = { referrals: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } }
     let urgentTicketCount = 0
     let campusesResult = { success: true, campuses: [] }
 
     try {
-        [analytics, campusComparison, users, admins, students, marketingAssets, growthTrend, deepTrends, referralData, urgentTicketCount, campusesResult] = await Promise.all([
+        [analytics, campusComparison, users, admins, students, marketingAssets, growthTrend, opsPulseCounts, referralData, urgentTicketCount, campusesResult] = await Promise.all([
             analyticsPromise.catch(e => { console.error('Analytics Fetch Error:', e); return defaultAnalytics }),
             campusComparisonPromise.catch(e => { console.error('Comp Fetch Error:', e); return [] }),
             usersPromise.catch(e => { console.error('Users Fetch Error:', e); return [] }),
@@ -175,7 +185,7 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
             studentsPromise.catch(e => { console.error('Students Fetch Error:', e); return [] }),
             marketingAssetsPromise.catch(e => { console.error('Marketing Fetch Error:', e); return { assets: [] } }),
             growthTrendPromise.catch(e => { console.error('Growth Fetch Error:', e); return [] }),
-            deepTrendsPromise.catch(e => { console.error('Trends Fetch Error:', e); return { success: false } }),
+            opsPulsePromise.catch(e => { console.error('OpsPulse Fetch Error:', e); return { pendingApprovals: 0, pendingPayouts: 0 } }),
             referralDataPromise.catch(e => { console.error('Referral Fetch Error:', e); return { referrals: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } } }),
             urgentTicketCountPromise.catch(e => { console.error('Tickets Fetch Error:', e); return 0 }),
             campusesPromise.catch(e => { console.error('Campus Fetch Error:', e); return { success: false, campuses: [] } })
@@ -210,7 +220,8 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
                     campuses={(campusesResult.success ? campusesResult.campuses : []) as any}
 
                     growthTrend={growthTrend}
-                    deepTrends={deepTrends.success ? deepTrends : null}
+                    deepTrends={null}
+                    opsPulse={{ ...opsPulseCounts, urgentTickets: urgentTicketCount }}
                     urgentTicketCount={urgentTicketCount}
 
                     referrals={serializeData(referralData.referrals || [])}

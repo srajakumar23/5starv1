@@ -77,6 +77,7 @@ interface Props {
     marketingAssets?: MarketingAsset[]
     growthTrend: { date: string; users: number }[]
     deepTrends?: any
+    opsPulse?: { pendingApprovals: number; pendingPayouts: number; urgentTickets: number }
     urgentTicketCount?: number
     referrals?: any[]
     referralMeta?: any
@@ -89,6 +90,7 @@ export default function SuperadminClient({ analytics, campusComparison = [], use
     currentUser,
     growthTrend = [],
     deepTrends = null,
+    opsPulse,
     urgentTicketCount = 0,
     referrals = [],
     referralMeta,
@@ -98,12 +100,6 @@ export default function SuperadminClient({ analytics, campusComparison = [], use
 }: Props) {
     const searchParams = useSearchParams()
     const router = useRouter()
-
-    console.log('DEBUG: SuperadminClient Rendered')
-    console.log(`DEBUG: Referrals Prop Length: ${referrals?.length || 0}`)
-    if (referrals && referrals.length > 0) {
-        console.log('DEBUG: First Referral:', JSON.stringify(referrals[0].user || {}, null, 2))
-    }
 
     // Core State
     const [loading, setLoading] = useState(true)
@@ -361,18 +357,12 @@ export default function SuperadminClient({ analytics, campusComparison = [], use
                             </div>
                         )}
 
-                        <div className="flex justify-end px-2">
-                            <StudentSourceFilter />
-                            <AcademicYearFilter />
-                        </div>
-
                         <AnalyticsDashboard
-
-
                             analyticsData={analyticsData}
                             trendData={trendData}
                             campusCompData={campusCompData}
                             deepTrends={deepTrends}
+                            opsPulse={opsPulse}
                         />
                     </div>
                 )}

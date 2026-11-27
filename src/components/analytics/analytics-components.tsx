@@ -40,9 +40,14 @@ const useMounted = () => {
 // --- Components ---
 
 // 1. Bar Chart (Campus Performance)
-export const CampusBarChart = ({ data }: { data: any[] }) => {
+export const CampusBarChart = ({ data, onSelectCampus }: { data: any[]; onSelectCampus?: (campus: string) => void }) => {
     const isMounted = useMounted()
     if (!isMounted) return <div className="h-[300px] w-full bg-slate-50/50 animate-pulse rounded-2xl" />
+
+    const handleBarClick = (barData: any) => {
+        const campusName = barData?.payload?.campus || barData?.campus
+        if (campusName && onSelectCampus) onSelectCampus(campusName)
+    }
 
     return (
         <div className="w-full h-[300px] min-w-0">
@@ -56,12 +61,12 @@ export const CampusBarChart = ({ data }: { data: any[] }) => {
                     <XAxis type="number" hide />
                     <YAxis dataKey="campus" type="category" width={150} tick={{ fontSize: 12 }} />
                     <Tooltip
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                        contentStyle={{ borderRadius: '12px', border: '1px solid #F3F4F6', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)' }}
                         cursor={{ fill: '#F3F4F6' }}
                     />
                     <Legend />
-                    <Bar dataKey="totalLeads" name="Total Leads" fill={COLORS.primary} radius={[0, 4, 4, 0]} barSize={20} />
-                    <Bar dataKey="confirmed" name="Admissions" fill={COLORS.success} radius={[0, 4, 4, 0]} barSize={20} />
+                    <Bar dataKey="totalLeads" name="Total Leads" fill={COLORS.primary} radius={[0, 4, 4, 0]} barSize={20} cursor={onSelectCampus ? 'pointer' : undefined} onClick={handleBarClick} />
+                    <Bar dataKey="confirmed" name="Admissions" fill={COLORS.success} radius={[0, 4, 4, 0]} barSize={20} cursor={onSelectCampus ? 'pointer' : undefined} onClick={handleBarClick} />
                 </BarChart>
             </ResponsiveContainer>
         </div>
@@ -100,7 +105,7 @@ export const ConversionFunnelChart = ({ data }: { data: any[] }) => {
 }
 
 // 3. User Growth Trend (Line Chart)
-export const GrowthTrendChart = ({ data }: { data: any[] }) => {
+export const GrowthTrendChart = ({ data, dataKey = 'users', seriesName = 'New Ambassadors' }: { data: any[]; dataKey?: string; seriesName?: string }) => {
     const isMounted = useMounted()
     if (!isMounted) return <div className="h-[300px] w-full bg-slate-50/50 animate-pulse rounded-2xl" />
 
@@ -117,11 +122,14 @@ export const GrowthTrendChart = ({ data }: { data: any[] }) => {
                             <stop offset="95%" stopColor={COLORS.primary} stopOpacity={0} />
                         </linearGradient>
                     </defs>
-                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                    <YAxis />
-                    <Tooltip />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                        contentStyle={{ borderRadius: '12px', border: '1px solid #F3F4F6', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)' }}
+                        formatter={(val: any) => [Number(val).toLocaleString('en-IN'), seriesName]}
+                    />
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                    <Area type="monotone" dataKey="users" stroke={COLORS.primary} fillOpacity={1} fill="url(#colorUsers)" />
+                    <Area type="monotone" dataKey={dataKey} stroke={COLORS.primary} strokeWidth={2.5} fillOpacity={1} fill="url(#colorUsers)" />
                 </AreaChart>
             </ResponsiveContainer>
         </div>
@@ -170,9 +178,14 @@ export const GenericPieChart = ({ data, dataKey = 'value', nameKey = 'name' }: {
 }
 
 // 5. Campus Efficiency (Conversion Rate)
-export const CampusEfficiencyChart = ({ data }: { data: any[] }) => {
+export const CampusEfficiencyChart = ({ data, onSelectCampus }: { data: any[]; onSelectCampus?: (campus: string) => void }) => {
     const isMounted = useMounted()
     if (!isMounted) return <div className="h-[300px] w-full bg-slate-50/50 animate-pulse rounded-2xl" />
+
+    const handleBarClick = (barData: any) => {
+        const campusName = barData?.payload?.campus || barData?.campus
+        if (campusName && onSelectCampus) onSelectCampus(campusName)
+    }
 
     return (
         <div className="w-full h-[300px] min-w-0">
@@ -187,9 +200,9 @@ export const CampusEfficiencyChart = ({ data }: { data: any[] }) => {
                     <YAxis dataKey="campus" type="category" width={150} tick={{ fontSize: 12 }} />
                     <Tooltip
                         formatter={(value: any) => [`${value}%`, 'Conversion Rate']}
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                        contentStyle={{ borderRadius: '12px', border: '1px solid #F3F4F6', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.08)' }}
                     />
-                    <Bar dataKey="conversionRate" name="Conv. Rate" fill={COLORS.tertiary} radius={[0, 4, 4, 0]} barSize={20} />
+                    <Bar dataKey="conversionRate" name="Conv. Rate" fill={COLORS.tertiary} radius={[0, 4, 4, 0]} barSize={20} cursor={onSelectCampus ? 'pointer' : undefined} onClick={handleBarClick} />
                 </BarChart>
             </ResponsiveContainer>
         </div>

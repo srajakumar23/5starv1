@@ -38,7 +38,7 @@ export default async function FinancePage({
     const settlementStatus = (activeTab === 'payout_history' || activeTab === 'waiver_history') ? 'Processed' : 'Pending'
 
     // 3. Parallel Data Fetching with Category-Based Guarding
-    const [academicYears, liabilitiesRes, registrationsRes, settlementsRes, readyRefundCountRes] = await Promise.all([
+    const [academicYears, liabilitiesRes, registrationsRes, settlementsRes, readyRefundCountRes, financeStatsRes] = await Promise.all([
         prisma.academicYear.findMany({ orderBy: { year: 'desc' } }),
 
         (isWaiversCategory || (isPayoutsCategory && activeTab === 'payouts')) // Fetch liabilities for Groups A/B AND Payout Requests
@@ -54,7 +54,10 @@ export default async function FinancePage({
             : Promise.resolve({ success: true, data: [], totalCount: 0 }),
 
         // Dedicated fetch for the "Ready for Refund" badge count (Always persistent)
-        getRegistrationTransactions('All', selectedYear, '', 1, 1, 'ready_refund')
+        getRegistrationTransactions('All', selectedYear, '', 1, 1, 'ready_refund'),
+
+        // Executive financial summary strip
+        getFinanceStats(selectedYear)
     ])
 
     const availableYears = academicYears.map((y: any) => y.year)
@@ -67,10 +70,11 @@ export default async function FinancePage({
     const eligibleRefunds = activeTab === 'ready_refund' ? registrations : [] 
     const liabilities = (liabilitiesRes.success && 'data' in liabilitiesRes) ? (liabilitiesRes as any).data : []
     const totalLiabilities = (liabilitiesRes.success && 'totalCount' in liabilitiesRes) ? (liabilitiesRes as any).totalCount : 0
+    const financeStats = (financeStatsRes.success && financeStatsRes.stats) ? financeStatsRes.stats : undefined
 
     return (
         <div className="space-y-8 animate-fade-in pb-10">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 xl:pr-14 rounded-xl border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-4">
                     <div className="p-3 bg-emerald-50 text-emerald-700 rounded-xl shadow-sm border border-emerald-100">
                         <Wallet size={24} strokeWidth={2.5} />
@@ -96,6 +100,7 @@ export default async function FinancePage({
                 search={search}
                 currentPage={currentPage}
                 activeTabProp={activeTab as any}
+                financeStats={financeStats}
             />
         </div>
     )

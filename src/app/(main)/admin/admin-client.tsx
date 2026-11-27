@@ -279,13 +279,15 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
             {selectedView === 'home' && (
                 <div className="space-y-8">
                     {/* Quick Stats Row */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                         <CleanStatCard
                             title="Total Leads"
                             value={analytics?.totalLeads || 0}
                             icon={Users}
                             iconColor="bg-red-50 text-red-600"
                             subtext="Total inbound leads"
+                            href="/admin?view=referrals"
+                            compact={true}
                         />
                         <CleanStatCard
                             title="Confirmed"
@@ -293,6 +295,8 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             icon={CheckCircle}
                             iconColor="bg-green-50 text-green-600"
                             subtext="Verified enrollments"
+                            href="/admin?view=referrals&status=Confirmed"
+                            compact={true}
                         />
                         <CleanStatCard
                             title="Pending"
@@ -300,6 +304,8 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             icon={Clock}
                             iconColor="bg-amber-50 text-amber-600"
                             subtext="Awaiting action"
+                            href="/admin?view=referrals&status=New"
+                            compact={true}
                         />
                         <CleanStatCard
                             title="Conversion"
@@ -307,6 +313,8 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             icon={TrendingUp}
                             iconColor="bg-purple-50 text-purple-600"
                             subtext="Leads to Confirmed"
+                            href="/admin?view=analytics"
+                            compact={true}
                         />
                         <CleanStatCard
                             title="Active Students"
@@ -314,6 +322,8 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             icon={BookOpen}
                             iconColor="bg-violet-50 text-violet-600"
                             subtext="In achievement portals"
+                            href="/admin?view=students"
+                            compact={true}
                         />
                     </div>
 

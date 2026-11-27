@@ -12,7 +12,7 @@ import { WaiverHistoryTable } from '@/components/finance/WaiverHistoryTable'
 import { generatePDFReport } from '@/lib/pdf-export'
 import { syncMissingPayments } from '@/app/finance-actions'
 import { toast } from 'sonner'
-import { Download, RefreshCw, LayoutList, Sparkles, History } from 'lucide-react'
+import { Download, RefreshCw, LayoutList, Sparkles, History, IndianRupee, Clock, CheckCircle2, CreditCard } from 'lucide-react'
 
 interface FinanceClientTabsProps {
     settlements: any[]
@@ -28,6 +28,12 @@ interface FinanceClientTabsProps {
     selectedYear?: string
     search?: string
     activeTabProp?: 'payouts' | 'payout_history' | 'waiver_history' | 'registrations' | 'ready_refund' | 'refund_history' | 'liabilities_a' | 'liabilities_b'
+    financeStats?: {
+        totalRevenue: number
+        pending: number
+        processed: number
+        totalCount: number
+    }
 }
 
 export function FinanceClientTabs({
@@ -43,7 +49,8 @@ export function FinanceClientTabs({
     availableYears = [],
     selectedYear = '2026-2027',
     search = '',
-    activeTabProp
+    activeTabProp,
+    financeStats
 }: FinanceClientTabsProps) {
 
     const activeTab = activeTabProp || 'payouts'
@@ -139,6 +146,71 @@ export function FinanceClientTabs({
 
     return (
         <div className="space-y-6">
+            {/* Executive Financial KPI Strip */}
+            {financeStats && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <button
+                        type="button"
+                        onClick={() => handleTabChange('registrations')}
+                        className={`text-left p-5 rounded-2xl border bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${
+                            activeTab === 'registrations' ? 'border-emerald-300 ring-2 ring-emerald-500/10' : 'border-gray-100'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Collected Fee Pipeline</span>
+                            <span className="p-2 rounded-xl bg-emerald-50 text-emerald-600"><IndianRupee size={15} /></span>
+                        </div>
+                        <p className="text-2xl font-black text-gray-900 italic">₹{(financeStats.totalRevenue || 0).toLocaleString('en-IN')}</p>
+                        <p className="text-[11px] font-bold text-gray-400 mt-1">Admission & donation fees ({selectedYear})</p>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => handleTabChange('ready_refund')}
+                        className={`text-left p-5 rounded-2xl border bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${
+                            activeTab === 'ready_refund' ? 'border-amber-300 ring-2 ring-amber-500/10' : 'border-gray-100'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Ready for ₹25 Refund</span>
+                            <span className="p-2 rounded-xl bg-amber-50 text-amber-600"><CreditCard size={15} /></span>
+                        </div>
+                        <p className="text-2xl font-black text-gray-900 italic">{readyRefundCount.toLocaleString('en-IN')}</p>
+                        <p className="text-[11px] font-bold text-amber-600 mt-1">₹{(readyRefundCount * 25).toLocaleString('en-IN')} ready to disburse</p>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => handleTabChange('payouts')}
+                        className={`text-left p-5 rounded-2xl border bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${
+                            activeTab === 'payouts' ? 'border-indigo-300 ring-2 ring-indigo-500/10' : 'border-gray-100'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Pending Payouts</span>
+                            <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600"><Clock size={15} /></span>
+                        </div>
+                        <p className="text-2xl font-black text-gray-900 italic">₹{(financeStats.pending || 0).toLocaleString('en-IN')}</p>
+                        <p className="text-[11px] font-bold text-gray-400 mt-1">Awaiting settlement authorization</p>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => handleTabChange('payout_history')}
+                        className={`text-left p-5 rounded-2xl border bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all ${
+                            activeTab === 'payout_history' ? 'border-blue-300 ring-2 ring-blue-500/10' : 'border-gray-100'
+                        }`}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Settled Payouts</span>
+                            <span className="p-2 rounded-xl bg-blue-50 text-blue-600"><CheckCircle2 size={15} /></span>
+                        </div>
+                        <p className="text-2xl font-black text-gray-900 italic">₹{(financeStats.processed || 0).toLocaleString('en-IN')}</p>
+                        <p className="text-[11px] font-bold text-gray-400 mt-1">{financeStats.totalCount.toLocaleString('en-IN')} settlement records</p>
+                    </button>
+                </div>
+            )}
+
             <div className="w-full space-y-4">
                 {/* Level 1: Main Categories & Actions */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
