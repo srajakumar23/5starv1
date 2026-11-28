@@ -115,7 +115,7 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
     let studentsPromise: Promise<any> = Promise.resolve([])
     let marketingAssetsPromise: Promise<any> = Promise.resolve({ assets: [] })
     let growthTrendPromise: Promise<any> = Promise.resolve([])
-    let opsPulsePromise: Promise<{ pendingApprovals: number; pendingPayouts: number }> = Promise.resolve({ pendingApprovals: 0, pendingPayouts: 0 })
+    let opsPulsePromise: Promise<{ pendingApprovals: number; pendingPayouts: number; overdueLeads48h: number }> = Promise.resolve({ pendingApprovals: 0, pendingPayouts: 0, overdueLeads48h: 0 })
     let referralDataPromise: Promise<any> = Promise.resolve({ referrals: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } })
     let urgentTicketCountPromise: Promise<any> = Promise.resolve(0)
     let systemSettingsPromise: Promise<any> = Promise.resolve({})
@@ -127,6 +127,7 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
     urgentTicketCountPromise = import('@/app/ticket-actions').then(m => m.getUrgentTicketCount())
 
     if (initialView === 'home' || initialView === 'analytics') {
+        const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000)
         analyticsPromise = getSystemAnalytics('all', selectedYear, selectedSource)
         campusComparisonPromise = getCampusComparison('all', selectedYear, selectedSource)
         growthTrendPromise = getUserGrowthTrend()
@@ -139,8 +140,14 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
             }),
             prisma.settlement.count({
                 where: { status: 'Pending' }
+            }),
+            prisma.referralLead.count({
+                where: {
+                    leadStatus: { notIn: ['Confirmed', 'Admitted', 'Rejected'] },
+                    createdAt: { lt: fortyEightHoursAgo }
+                }
             })
-        ]).then(([pendingApprovals, pendingPayouts]) => ({ pendingApprovals, pendingPayouts }))
+        ]).then(([pendingApprovals, pendingPayouts, overdueLeads48h]) => ({ pendingApprovals, pendingPayouts, overdueLeads48h }))
     }
 
     if (initialView === 'students') {
@@ -171,7 +178,7 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
     let students = []
     let marketingAssets = { assets: [] }
     let growthTrend = []
-    let opsPulseCounts = { pendingApprovals: 0, pendingPayouts: 0 }
+    let opsPulseCounts = { pendingApprovals: 0, pendingPayouts: 0, overdueLeads48h: 0 }
     let referralData = { referrals: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } }
     let urgentTicketCount = 0
     let campusesResult = { success: true, campuses: [] }
@@ -185,7 +192,7 @@ export default async function SuperadminPage({ searchParams }: PageProps) {
             studentsPromise.catch(e => { console.error('Students Fetch Error:', e); return [] }),
             marketingAssetsPromise.catch(e => { console.error('Marketing Fetch Error:', e); return { assets: [] } }),
             growthTrendPromise.catch(e => { console.error('Growth Fetch Error:', e); return [] }),
-            opsPulsePromise.catch(e => { console.error('OpsPulse Fetch Error:', e); return { pendingApprovals: 0, pendingPayouts: 0 } }),
+            opsPulsePromise.catch(e => { console.error('OpsPulse Fetch Error:', e); return { pendingApprovals: 0, pendingPayouts: 0, overdueLeads48h: 0 } }),
             referralDataPromise.catch(e => { console.error('Referral Fetch Error:', e); return { referrals: [], meta: { page: 1, limit: 50, total: 0, totalPages: 1 } } }),
             urgentTicketCountPromise.catch(e => { console.error('Tickets Fetch Error:', e); return 0 }),
             campusesPromise.catch(e => { console.error('Campus Fetch Error:', e); return { success: false, campuses: [] } })

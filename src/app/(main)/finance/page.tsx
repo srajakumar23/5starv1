@@ -25,31 +25,33 @@ export default async function FinancePage({
     // Determine active tab from URL (Standardized source of truth)
     const activeTab = searchParams.tab || 'registrations'
 
+    const academicYears = await prisma.academicYear.findMany({ orderBy: { year: 'desc' } })
+    const defaultActiveYear = academicYears.find((y: any) => y.isCurrent)?.year || academicYears[0]?.year || '2026-2027'
+
     const currentPage = Number(searchParams.page) || 1
     const search = searchParams.search || ''
-    const selectedYear = searchParams.year || '2026-2027'
+    const selectedYear = searchParams.year || defaultActiveYear
 
     // 1. Data Category Logic (Strict Isolation)
     const isRegistrationsCategory = ['registrations', 'ready_refund', 'refund_history'].includes(activeTab)
     const isPayoutsCategory = ['payouts', 'payout_history'].includes(activeTab)
     const isWaiversCategory = ['liabilities_a', 'liabilities_b', 'waiver_history'].includes(activeTab)
+    const isAnalyticsCategory = activeTab === 'analytics'
 
     // 2. Status Mapping for Server Action
     const settlementStatus = (activeTab === 'payout_history' || activeTab === 'waiver_history') ? 'Processed' : 'Pending'
 
     // 3. Parallel Data Fetching with Category-Based Guarding
-    const [academicYears, liabilitiesRes, registrationsRes, settlementsRes, readyRefundCountRes, financeStatsRes] = await Promise.all([
-        prisma.academicYear.findMany({ orderBy: { year: 'desc' } }),
-
-        (isWaiversCategory || (isPayoutsCategory && activeTab === 'payouts')) // Fetch liabilities for Groups A/B AND Payout Requests
+    const [liabilitiesRes, registrationsRes, settlementsRes, readyRefundCountRes, financeStatsRes, pendingQrAgg, partnersMissingBank] = await Promise.all([
+        !isAnalyticsCategory && (isWaiversCategory || (isPayoutsCategory && activeTab === 'payouts')) // Fetch liabilities for Groups A/B AND Payout Requests
             ? getAccruedPayoutLiabilities(selectedYear, search, undefined, currentPage, 20, activeTab === 'liabilities_a' ? 'A' : activeTab === 'liabilities_b' ? 'B' : undefined)
             : Promise.resolve({ success: true, data: [], totalCount: 0 }),
 
-        (isRegistrationsCategory)
+        !isAnalyticsCategory && isRegistrationsCategory
             ? getRegistrationTransactions('All', selectedYear, search, currentPage, 20, activeTab)
             : Promise.resolve({ success: true, data: [], totalCount: 0 }),
 
-        (isPayoutsCategory || activeTab === 'waiver_history')
+        !isAnalyticsCategory && (isPayoutsCategory || activeTab === 'waiver_history')
             ? getSettlements(settlementStatus, selectedYear, search, currentPage, 20, activeTab)
             : Promise.resolve({ success: true, data: [], totalCount: 0 }),
 
@@ -57,7 +59,30 @@ export default async function FinancePage({
         getRegistrationTransactions('All', selectedYear, '', 1, 1, 'ready_refund'),
 
         // Executive financial summary strip
-        getFinanceStats(selectedYear)
+        getFinanceStats(selectedYear),
+
+        // Pending Manual QR Approvals + Missing Bank Readiness Pulse
+        prisma.payment.aggregate({
+            where: {
+                paymentMethod: 'MANUAL_QR',
+                OR: [{ orderStatus: 'PENDING_APPROVAL' }, { paymentStatus: 'Pending Approval' }]
+            },
+            _count: { id: true },
+            _sum: { orderAmount: true }
+        }),
+
+        prisma.user.count({
+            where: {
+                status: 'Active',
+                confirmedReferralCount: { gt: 0 },
+                OR: [
+                    { accountNumber: null },
+                    { accountNumber: '' },
+                    { ifscCode: null },
+                    { ifscCode: '' }
+                ]
+            }
+        })
     ])
 
     const availableYears = academicYears.map((y: any) => y.year)
@@ -71,6 +96,11 @@ export default async function FinancePage({
     const liabilities = (liabilitiesRes.success && 'data' in liabilitiesRes) ? (liabilitiesRes as any).data : []
     const totalLiabilities = (liabilitiesRes.success && 'totalCount' in liabilitiesRes) ? (liabilitiesRes as any).totalCount : 0
     const financeStats = (financeStatsRes.success && financeStatsRes.stats) ? financeStatsRes.stats : undefined
+    const financeOpsPulse = {
+        pendingQrCount: pendingQrAgg?._count?.id || 0,
+        pendingQrAmount: Math.round(Number(pendingQrAgg?._sum?.orderAmount) || 0),
+        partnersMissingBank: partnersMissingBank || 0
+    }
 
     return (
         <div className="space-y-8 animate-fade-in pb-10">
@@ -101,6 +131,7 @@ export default async function FinancePage({
                 currentPage={currentPage}
                 activeTabProp={activeTab as any}
                 financeStats={financeStats}
+                financeOpsPulse={financeOpsPulse}
             />
         </div>
     )

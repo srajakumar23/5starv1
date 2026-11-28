@@ -61,6 +61,28 @@ export interface ExecutiveInsightsData {
         totalLeads: number
         confirmed: number
     }>
+    slaHealth: {
+        within48h: number
+        overdue48h: number
+        overdue7d: number
+        totalOpen: number
+    }
+    dailySeries: Array<{
+        date: string
+        leads: number
+        confirmed: number
+    }>
+    financialHealth: {
+        registrationCollected: number
+        registrationCount: number
+        pendingQrApprovals: number
+        pendingQrAmount: number
+        settledAmount: number
+        settledCount: number
+        pendingPayoutAmount: number
+        pendingPayoutCount: number
+        partnersMissingBank: number
+    }
 }
 
 export interface ExecutiveInsightsResponse {
@@ -147,6 +169,11 @@ export async function getExecutiveInsights(options?: {
                 ? Prisma.sql`AND r."createdAt" <= ${endDate}`
                 : Prisma.empty
 
+        const seriesStartSql =
+            startDate && !isNaN(startDate.getTime())
+                ? Prisma.sql`AND r."createdAt" >= ${startDate}`
+                : Prisma.sql`AND r."createdAt" >= NOW() - INTERVAL '30 days'`
+
         const [
             funnelRows,
             leadStatusRows,
@@ -156,7 +183,12 @@ export async function getExecutiveInsights(options?: {
             feeMixRows,
             velocityRows,
             networkConvRows,
-            topAmbassadorRows
+            topAmbassadorRows,
+            slaRows,
+            dailySeriesRows,
+            paymentHealthRows,
+            settlementHealthRows,
+            missingBankRows
         ] = await withRetry(() =>
             Promise.all([
                 prisma.$queryRaw<Array<Record<string, number>>>`
@@ -305,6 +337,77 @@ export async function getExecutiveInsights(options?: {
                     GROUP BY u."userId", u."fullName", u."role", u."referralCode"
                     ORDER BY confirmed DESC, total_leads DESC
                     LIMIT 5
+                `,
+                prisma.$queryRaw<Array<{ within_48h: number; overdue_48h: number; overdue_7d: number; total_open: number }>>`
+                    SELECT
+                        COUNT(*)::int as total_open,
+                        COUNT(*) FILTER (WHERE r."createdAt" >= NOW() - INTERVAL '48 hours')::int as within_48h,
+                        COUNT(*) FILTER (WHERE r."createdAt" < NOW() - INTERVAL '48 hours' AND r."createdAt" >= NOW() - INTERVAL '7 days')::int as overdue_48h,
+                        COUNT(*) FILTER (WHERE r."createdAt" < NOW() - INTERVAL '7 days')::int as overdue_7d
+                    FROM "ReferralLead" r
+                    WHERE r."leadStatus"::text NOT IN ('Confirmed', 'Admitted', 'Closed', 'Rejected')
+                    ${leadCampusSql}
+                    ${leadYearSql}
+                    ${leadStartSql}
+                    ${leadEndSql}
+                `,
+                prisma.$queryRaw<Array<{ date: string; leads: number; confirmed: number }>>`
+                    SELECT
+                        TO_CHAR(r."createdAt" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') as date,
+                        COUNT(*)::int as leads,
+                        COUNT(*) FILTER (WHERE r."leadStatus"::text IN ('Confirmed', 'Admitted'))::int as confirmed
+                    FROM "ReferralLead" r
+                    WHERE 1=1
+                    ${leadCampusSql}
+                    ${leadYearSql}
+                    ${seriesStartSql}
+                    ${leadEndSql}
+                    GROUP BY 1
+                    ORDER BY 1 ASC
+                    LIMIT 90
+                `,
+                prisma.$queryRaw<Array<{
+                    registration_collected: number
+                    registration_count: number
+                    pending_qr_approvals: number
+                    pending_qr_amount: number
+                }>>`
+                    SELECT
+                        COALESCE(SUM(p."orderAmount") FILTER (WHERE p."orderStatus" = 'PAID' OR p."paymentStatus" = 'Success')::float, 0) as registration_collected,
+                        COUNT(*) FILTER (WHERE p."orderStatus" = 'PAID' OR p."paymentStatus" = 'Success')::int as registration_count,
+                        COUNT(*) FILTER (WHERE p."paymentMethod" = 'MANUAL_QR' AND (p."orderStatus" = 'PENDING_APPROVAL' OR p."paymentStatus" = 'Pending Approval'))::int as pending_qr_approvals,
+                        COALESCE(SUM(p."orderAmount") FILTER (WHERE p."paymentMethod" = 'MANUAL_QR' AND (p."orderStatus" = 'PENDING_APPROVAL' OR p."paymentStatus" = 'Pending Approval'))::float, 0) as pending_qr_amount
+                    FROM "Payment" p
+                    JOIN "User" u ON u."userId" = p."userId"
+                    WHERE u."status"::text != 'Deleted'
+                    ${userCampusSql}
+                    ${userYearSql}
+                `,
+                prisma.$queryRaw<Array<{
+                    settled_amount: number
+                    settled_count: number
+                    pending_payout_amount: number
+                    pending_payout_count: number
+                }>>`
+                    SELECT
+                        COALESCE(SUM(s."amount") FILTER (WHERE s."status" = 'Processed')::float, 0) as settled_amount,
+                        COUNT(*) FILTER (WHERE s."status" = 'Processed')::int as settled_count,
+                        COALESCE(SUM(s."amount") FILTER (WHERE s."status" = 'Pending')::float, 0) as pending_payout_amount,
+                        COUNT(*) FILTER (WHERE s."status" = 'Pending')::int as pending_payout_count
+                    FROM "Settlement" s
+                    JOIN "User" u ON u."userId" = s."userId"
+                    WHERE s."amount" > 25
+                    ${userCampusSql}
+                    ${userYearSql}
+                `,
+                prisma.$queryRaw<Array<{ partners_missing_bank: number }>>`
+                    SELECT COUNT(*)::int as partners_missing_bank
+                    FROM "User" u
+                    WHERE u."status"::text = 'Active'
+                      AND u."confirmedReferralCount" > 0
+                      AND (u."accountNumber" IS NULL OR TRIM(u."accountNumber") = '' OR u."ifscCode" IS NULL OR TRIM(u."ifscCode") = '')
+                    ${userCampusSql}
+                    ${userYearSql}
                 `
             ])
         )
@@ -312,6 +415,10 @@ export async function getExecutiveInsights(options?: {
         const f = funnelRows[0] || {}
         const fm = feeMixRows[0] || { otp_count: 0, wotp_count: 0, avg_days_to_confirm: 0 }
         const vel = velocityRows[0] || { leads_7d: 0, leads_prev_7d: 0, confirmed_7d: 0, confirmed_prev_7d: 0 }
+        const sla = slaRows[0] || { within_48h: 0, overdue_48h: 0, overdue_7d: 0, total_open: 0 }
+        const ph = paymentHealthRows[0] || { registration_collected: 0, registration_count: 0, pending_qr_approvals: 0, pending_qr_amount: 0 }
+        const sh = settlementHealthRows[0] || { settled_amount: 0, settled_count: 0, pending_payout_amount: 0, pending_payout_count: 0 }
+        const mb = missingBankRows[0] || { partners_missing_bank: 0 }
 
         let benchmark: ExecutiveInsightsData['benchmark']
         if (campusList.length > 0 && networkConvRows[0]) {
@@ -378,7 +485,29 @@ export async function getExecutiveInsights(options?: {
                 referralCode: a.referral_code,
                 totalLeads: a.total_leads,
                 confirmed: a.confirmed
-            }))
+            })),
+            slaHealth: {
+                within48h: Number(sla.within_48h) || 0,
+                overdue48h: Number(sla.overdue_48h) || 0,
+                overdue7d: Number(sla.overdue_7d) || 0,
+                totalOpen: Number(sla.total_open) || 0
+            },
+            dailySeries: dailySeriesRows.map(d => ({
+                date: String(d.date),
+                leads: Number(d.leads) || 0,
+                confirmed: Number(d.confirmed) || 0
+            })),
+            financialHealth: {
+                registrationCollected: Math.round(Number(ph.registration_collected) || 0),
+                registrationCount: Number(ph.registration_count) || 0,
+                pendingQrApprovals: Number(ph.pending_qr_approvals) || 0,
+                pendingQrAmount: Math.round(Number(ph.pending_qr_amount) || 0),
+                settledAmount: Math.round(Number(sh.settled_amount) || 0),
+                settledCount: Number(sh.settled_count) || 0,
+                pendingPayoutAmount: Math.round(Number(sh.pending_payout_amount) || 0),
+                pendingPayoutCount: Number(sh.pending_payout_count) || 0,
+                partnersMissingBank: Number(mb.partners_missing_bank) || 0
+            }
         }
 
         return {

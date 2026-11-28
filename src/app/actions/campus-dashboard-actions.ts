@@ -87,6 +87,8 @@ export async function getCampusStats(days: number = 30, academicYear?: string) {
             lt: new Date(Date.now() - (days * 24 * 60 * 60 * 1000))
         }
 
+    const fortyEightHoursAgo = new Date(Date.now() - (48 * 60 * 60 * 1000))
+
     try {
         const [
             totalStudents,
@@ -95,7 +97,8 @@ export async function getCampusStats(days: number = 30, academicYear?: string) {
             leadsFollowup,
             leadsConfirmed,
             prevPeriodLeads,
-            prevLeadsConfirmed
+            prevLeadsConfirmed,
+            overdue48h
         ] = await Promise.all([
             prisma.student.count({ where: whereClause }),
             prisma.referralLead.count({
@@ -138,6 +141,13 @@ export async function getCampusStats(days: number = 30, academicYear?: string) {
                     leadStatus: LeadStatus.Confirmed,
                     ...(prevDateFilter ? { confirmedDate: prevDateFilter } : { confirmedDate: { not: null } })
                 }
+            }),
+            prisma.referralLead.count({
+                where: {
+                    ...referralWhere,
+                    leadStatus: { in: [LeadStatus.New, LeadStatus.Follow_up] },
+                    createdAt: { lt: fortyEightHoursAgo }
+                }
             })
         ])
 
@@ -151,6 +161,7 @@ export async function getCampusStats(days: number = 30, academicYear?: string) {
                 leadsNew,
                 leadsFollowup,
                 leadsConfirmed,
+                overdue48h,
                 // Comparison metrics
                 prevNewReferrals: prevPeriodLeads,
                 prevConfirmedAdmissions: prevLeadsConfirmed

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { SettlementTable } from '@/components/finance/SettlementTable'
 import { RegistrationTable } from '@/components/finance/RegistrationTable'
 import { RefundReadyTable } from '@/components/finance/RefundReadyTable'
@@ -12,7 +13,13 @@ import { WaiverHistoryTable } from '@/components/finance/WaiverHistoryTable'
 import { generatePDFReport } from '@/lib/pdf-export'
 import { syncMissingPayments } from '@/app/finance-actions'
 import { toast } from 'sonner'
-import { Download, RefreshCw, LayoutList, Sparkles, History, IndianRupee, Clock, CheckCircle2, CreditCard } from 'lucide-react'
+import Link from 'next/link'
+import { Download, RefreshCw, LayoutList, Sparkles, History, IndianRupee, Clock, CheckCircle2, CreditCard, Landmark, ArrowUpRight, ShieldCheck, BarChart3 } from 'lucide-react'
+
+const ExecutiveInsightsPanel = dynamic(
+    () => import('@/components/superadmin/ExecutiveInsightsPanel').then(m => m.ExecutiveInsightsPanel),
+    { ssr: false, loading: () => <div className="h-96 w-full animate-pulse bg-white rounded-[32px] border border-gray-100" /> }
+)
 
 interface FinanceClientTabsProps {
     settlements: any[]
@@ -27,12 +34,17 @@ interface FinanceClientTabsProps {
     availableYears?: string[]
     selectedYear?: string
     search?: string
-    activeTabProp?: 'payouts' | 'payout_history' | 'waiver_history' | 'registrations' | 'ready_refund' | 'refund_history' | 'liabilities_a' | 'liabilities_b'
+    activeTabProp?: 'payouts' | 'payout_history' | 'waiver_history' | 'registrations' | 'ready_refund' | 'refund_history' | 'liabilities_a' | 'liabilities_b' | 'analytics'
     financeStats?: {
         totalRevenue: number
         pending: number
         processed: number
         totalCount: number
+    }
+    financeOpsPulse?: {
+        pendingQrCount: number
+        pendingQrAmount: number
+        partnersMissingBank: number
     }
 }
 
@@ -50,7 +62,8 @@ export function FinanceClientTabs({
     selectedYear = '2026-2027',
     search = '',
     activeTabProp,
-    financeStats
+    financeStats,
+    financeOpsPulse
 }: FinanceClientTabsProps) {
 
     const activeTab = activeTabProp || 'payouts'
@@ -144,8 +157,70 @@ export function FinanceClientTabs({
 
     // Removed handleDownloadReport as per user request
 
+    const fulfillmentPool = (financeStats?.processed || 0) + (financeStats?.pending || 0)
+    const fulfillmentPct = fulfillmentPool > 0
+        ? Math.min(100, Math.round(((financeStats?.processed || 0) / fulfillmentPool) * 100))
+        : 0
+
     return (
         <div className="space-y-6">
+            {/* Finance Operations Pulse Strip */}
+            {financeOpsPulse && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Link
+                        href="/superadmin/approvals"
+                        className={`group bg-white px-4 py-3.5 rounded-2xl border shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-3 ${
+                            financeOpsPulse.pendingQrCount > 0 ? 'border-amber-200 hover:border-amber-300' : 'border-gray-100 hover:border-gray-200'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 rounded-xl bg-amber-50 text-amber-600 shrink-0"><ShieldCheck size={16} /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Pending Manual QR Approvals</p>
+                                <p className="text-sm font-black text-gray-900 leading-tight">
+                                    {financeOpsPulse.pendingQrCount.toLocaleString('en-IN')} queued
+                                    {financeOpsPulse.pendingQrAmount > 0 && (
+                                        <span className="text-amber-700 ml-1.5">• ₹{financeOpsPulse.pendingQrAmount.toLocaleString('en-IN')}</span>
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+                        <ArrowUpRight size={14} className="text-gray-300 group-hover:text-amber-600 shrink-0" />
+                    </Link>
+
+                    <div className="bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm flex flex-col justify-center gap-1.5">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">Disbursement Fulfillment ({selectedYear})</span>
+                            <span className="text-xs font-black text-emerald-700">{fulfillmentPct}% Settled</span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                            <div
+                                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                                style={{ width: `${fulfillmentPct}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    <Link
+                        href="/superadmin/users"
+                        className={`group bg-white px-4 py-3.5 rounded-2xl border shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-3 ${
+                            financeOpsPulse.partnersMissingBank > 0 ? 'border-rose-200 hover:border-rose-300' : 'border-gray-100 hover:border-gray-200'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 rounded-xl bg-rose-50 text-rose-600 shrink-0"><Landmark size={16} /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Missing Bank A/C (With Admissions)</p>
+                                <p className={`text-sm font-black leading-tight ${financeOpsPulse.partnersMissingBank > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                                    {financeOpsPulse.partnersMissingBank} active partners
+                                </p>
+                            </div>
+                        </div>
+                        <ArrowUpRight size={14} className="text-gray-300 group-hover:text-rose-600 shrink-0" />
+                    </Link>
+                </div>
+            )}
+
             {/* Executive Financial KPI Strip */}
             {financeStats && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -247,6 +322,17 @@ export function FinanceClientTabs({
                         >
                             <RefreshCw size={16} />
                             Registrations & Refunds
+                        </button>
+                        <button
+                            onClick={() => handleTabChange('analytics')}
+                            suppressHydrationWarning={true}
+                            className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition-all duration-300 ${activeTab === 'analytics'
+                                ? 'bg-gradient-to-br from-indigo-600 to-blue-700 text-white shadow-lg shadow-indigo-900/20 scale-105'
+                                : 'text-gray-500 hover:text-indigo-700 hover:bg-indigo-50'
+                                }`}
+                        >
+                            <BarChart3 size={16} />
+                            Executive Analytics
                         </button>
                     </div>
 
@@ -403,7 +489,14 @@ export function FinanceClientTabs({
             </div>
 
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                {activeTab === 'payouts' ? (
+                {activeTab === 'analytics' ? (
+                    <ExecutiveInsightsPanel
+                        campus="all"
+                        academicYear={selectedYear}
+                        initialTab="financials"
+                        referralsBasePath="/superadmin/referrals"
+                    />
+                ) : activeTab === 'payouts' ? (
                     <SettlementTable 
                         key={`pending-${selectedYear}-${currentPage}`}
                         data={settlements} 

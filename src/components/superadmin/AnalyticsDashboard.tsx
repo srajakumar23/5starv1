@@ -10,7 +10,7 @@ import { CampusBarChart, GrowthTrendChart, GenericPieChart, CampusEfficiencyChar
 import { AcademicYearFilter } from '@/components/AcademicYearFilter'
 import { StudentSourceFilter } from '@/components/StudentSourceFilter'
 import { SystemAnalytics, CampusPerformance } from '@/types'
-import { TrendingUp, Target, Calendar, RefreshCw, X, CheckCircle2, Wallet, GitFork, LifeBuoy, ArrowUpRight } from 'lucide-react'
+import { TrendingUp, Target, Calendar, RefreshCw, X, CheckCircle2, Wallet, GitFork, LifeBuoy, ArrowUpRight, AlertTriangle } from 'lucide-react'
 
 const RetentionHeatmap = dynamic(() => import('@/components/analytics/RetentionHeatmap').then(m => m.RetentionHeatmap), {
     ssr: false,
@@ -39,6 +39,7 @@ interface AnalyticsDashboardProps {
         pendingApprovals: number
         pendingPayouts: number
         urgentTickets: number
+        overdueLeads48h?: number
     }
 }
 
@@ -265,7 +266,7 @@ export function AnalyticsDashboard({ analyticsData: initialAnalytics, trendData,
 
             {/* Operations Pulse Strip */}
             {opsPulse && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     <Link
                         href="/superadmin/approvals"
                         className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-amber-200 transition-all flex items-center justify-between gap-3"
@@ -306,6 +307,24 @@ export function AnalyticsDashboard({ analyticsData: initialAnalytics, trendData,
                             </div>
                         </div>
                         <ArrowUpRight size={14} className="text-gray-300 group-hover:text-indigo-600 shrink-0" />
+                    </Link>
+
+                    <Link
+                        href={selectedCampus !== 'all' ? `/superadmin/referrals?campus=${encodeURIComponent(selectedCampus)}` : '/superadmin/referrals'}
+                        className={`group bg-white px-4 py-3.5 rounded-2xl border shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-3 ${
+                            (opsPulse.overdueLeads48h || 0) > 0 ? 'border-rose-200 hover:border-rose-300' : 'border-gray-100 hover:border-gray-200'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 rounded-xl bg-rose-50 text-rose-600 shrink-0"><AlertTriangle size={16} /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Overdue SLA (&gt;48h)</p>
+                                <p className={`text-lg font-black leading-tight ${(opsPulse.overdueLeads48h || 0) > 0 ? 'text-rose-600' : 'text-gray-900'}`}>
+                                    {(opsPulse.overdueLeads48h || 0).toLocaleString('en-IN')}
+                                </p>
+                            </div>
+                        </div>
+                        <ArrowUpRight size={14} className="text-gray-300 group-hover:text-rose-600 shrink-0" />
                     </Link>
 
                     <Link

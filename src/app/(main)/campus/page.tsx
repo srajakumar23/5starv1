@@ -11,7 +11,6 @@ import { AcademicYearFilter } from '@/components/AcademicYearFilter'
 
 // Imports at top
 
-import { CampusAnalyticsView } from '@/components/campus/CampusAnalyticsView'
 import { ExecutiveInsightsPanel } from '@/components/superadmin/ExecutiveInsightsPanel'
 import { getAllProgramLeads } from '@/app/superadmin-actions'
 import { ProgramLeadsTable } from '@/components/superadmin/ProgramLeadsTable'
@@ -33,7 +32,7 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
 
     const params = await searchParams
     const view = params?.view || 'home'
-    const days = params?.days ? parseInt(params.days) : 30
+    const days = params?.days !== undefined ? parseInt(params.days) : 0
     const year = params?.year
 
     const [{ success, stats, error }, targetsResult, settlementsAllowed] = await Promise.all([
@@ -65,16 +64,9 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
     const leadChange = getChange(stats?.newReferrals || 0, stats?.prevNewReferrals || 0)
     const admissionChange = getChange(stats?.confirmedAdmissions || 0, stats?.prevConfirmedAdmissions || 0)
 
-    // View Components Array for easier management
+    // Legacy ?view=analytics aliases cleanly into unified Campus Home Analytics Command Center
     if (view === 'analytics') {
-        return (
-            <CampusAnalyticsView
-                stats={stats}
-                campusName={user.assignedCampus || 'All Campuses'}
-                currentDays={days}
-                academicYear={year || 'All'}
-            />
-        )
+        redirect(year ? `/campus?year=${encodeURIComponent(year)}` : '/campus')
     }
 
     if (view === 'program-leads') {
@@ -234,54 +226,159 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
                 </div>
             )}
 
-            {/* Premium Stats Grid - Library Component */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-gray-500 font-bold text-sm uppercase tracking-wider">Total Students</h3>
-                            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-                                <Users size={24} />
-                            </div>
-                        </div>
-                        <div className="flex items-baseline gap-2">
-                            <h2 className="text-3xl font-black text-gray-900">{stats?.totalStudents || 0}</h2>
+            {/* Campus Operations Pulse Strip */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Link
+                    href="/campus/referrals"
+                    className={`group bg-white px-4 py-3.5 rounded-2xl border shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-3 ${
+                        (stats?.overdue48h || 0) > 0 ? 'border-rose-200 hover:border-rose-300' : 'border-gray-100 hover:border-gray-200'
+                    }`}
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-xl bg-rose-50 text-rose-600 shrink-0"><AlertCircle size={16} /></div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Overdue SLA (&gt;48h)</p>
+                            <p className={`text-lg font-black leading-tight ${(stats?.overdue48h || 0) > 0 ? 'text-rose-600' : 'text-gray-900'}`}>
+                                {(stats?.overdue48h || 0).toLocaleString('en-IN')}
+                            </p>
                         </div>
                     </div>
+                    <ArrowUpRight size={14} className="text-gray-300 group-hover:text-rose-600 shrink-0" />
+                </Link>
 
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-gray-500 font-bold text-sm uppercase tracking-wider">New Leads</h3>
-                            <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
-                                <UserPlus size={24} />
-                            </div>
-                        </div>
-                        <div className="flex items-baseline gap-2">
-                            <h2 className="text-3xl font-black text-gray-900">{stats?.newReferrals || 0}</h2>
-                            {leadChange && (
-                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${leadChange.isIncrease ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                    {leadChange.isIncrease ? '+' : '-'}{leadChange.value}%
-                                </span>
-                            )}
+                <Link
+                    href="/campus/referrals?status=Follow-up"
+                    className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-amber-200 transition-all flex items-center justify-between gap-3"
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-xl bg-amber-50 text-amber-600 shrink-0"><Clock size={16} /></div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">In Follow-up</p>
+                            <p className="text-lg font-black text-gray-900 leading-tight">{(stats?.leadsFollowup || 0).toLocaleString('en-IN')}</p>
                         </div>
                     </div>
+                    <ArrowUpRight size={14} className="text-gray-300 group-hover:text-amber-600 shrink-0" />
+                </Link>
 
-                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-gray-500 font-bold text-sm uppercase tracking-wider">Admissions</h3>
-                            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-                                <CheckCircle2 size={24} />
-                            </div>
-                        </div>
-                        <div className="flex items-baseline gap-2">
-                            <h2 className="text-3xl font-black text-gray-900">{stats?.confirmedAdmissions || 0}</h2>
-                            {admissionChange && (
-                                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${admissionChange.isIncrease ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                    {admissionChange.isIncrease ? '+' : '-'}{admissionChange.value}%
-                                </span>
-                            )}
+                <Link
+                    href="/campus/referrals?status=Confirmed"
+                    className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex items-center justify-between gap-3"
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 shrink-0"><BarChart3 size={16} /></div>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Win Rate</p>
+                            <p className="text-lg font-black text-indigo-700 leading-tight">
+                                {(stats?.newReferrals || 0) > 0
+                                    ? `${(((stats?.confirmedAdmissions || 0) / (stats?.newReferrals || 1)) * 100).toFixed(1)}%`
+                                    : '0.0%'}
+                            </p>
                         </div>
                     </div>
-                </div>
+                    <ArrowUpRight size={14} className="text-gray-300 group-hover:text-indigo-600 shrink-0" />
+                </Link>
+
+                {canViewPartnerBenefits ? (
+                    <Link
+                        href="/campus/benefits"
+                        className="group bg-white px-4 py-3.5 rounded-2xl border border-emerald-200 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all flex items-center justify-between gap-3"
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 shrink-0"><CheckCircle2 size={16} /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700 truncate">Partner Benefits</p>
+                                <p className="text-sm font-black text-gray-900 leading-tight">Track Payouts</p>
+                            </div>
+                        </div>
+                        <ArrowUpRight size={14} className="text-emerald-400 group-hover:text-emerald-700 shrink-0" />
+                    </Link>
+                ) : (
+                    <Link
+                        href="/campus?view=reports"
+                        className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all flex items-center justify-between gap-3"
+                    >
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 rounded-xl bg-blue-50 text-blue-600 shrink-0"><TrendingUp size={16} /></div>
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Campus Reports</p>
+                                <p className="text-sm font-black text-gray-900 leading-tight">Export Data</p>
+                            </div>
+                        </div>
+                        <ArrowUpRight size={14} className="text-gray-300 group-hover:text-blue-600 shrink-0" />
+                    </Link>
+                )}
+            </div>
+
+            {/* 5 Clickable KPI Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                <Link href="/campus/students" className="group bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-gray-500 font-bold text-xs uppercase tracking-wider">Total Students</h3>
+                        <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                            <Users size={18} />
+                        </div>
+                    </div>
+                    <h2 className="text-2xl font-black text-gray-900">{(stats?.totalStudents || 0).toLocaleString('en-IN')}</h2>
+                </Link>
+
+                <Link href="/campus/referrals" className="group bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-purple-200 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-gray-500 font-bold text-xs uppercase tracking-wider">Total Leads</h3>
+                        <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
+                            <UserPlus size={18} />
+                        </div>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                        <h2 className="text-2xl font-black text-gray-900">{(stats?.newReferrals || 0).toLocaleString('en-IN')}</h2>
+                        {leadChange && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${leadChange.isIncrease ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {leadChange.isIncrease ? '+' : '-'}{leadChange.value}%
+                            </span>
+                        )}
+                    </div>
+                </Link>
+
+                <Link href="/campus/referrals?status=Confirmed" className="group bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-gray-500 font-bold text-xs uppercase tracking-wider">Confirmed</h3>
+                        <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
+                            <CheckCircle2 size={18} />
+                        </div>
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                        <h2 className="text-2xl font-black text-emerald-700">{(stats?.confirmedAdmissions || 0).toLocaleString('en-IN')}</h2>
+                        {admissionChange && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${admissionChange.isIncrease ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {admissionChange.isIncrease ? '+' : '-'}{admissionChange.value}%
+                            </span>
+                        )}
+                    </div>
+                </Link>
+
+                <Link href="/campus/referrals?status=New" className="group bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-amber-200 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-gray-500 font-bold text-xs uppercase tracking-wider">Pending Pipeline</h3>
+                        <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
+                            <Clock size={18} />
+                        </div>
+                    </div>
+                    <h2 className="text-2xl font-black text-amber-700">{(stats?.pendingAdmissions || 0).toLocaleString('en-IN')}</h2>
+                </Link>
+
+                <Link href="/campus/referrals?status=Confirmed" className="group bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-gray-500 font-bold text-xs uppercase tracking-wider">Conversion</h3>
+                        <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                            <TrendingUp size={18} />
+                        </div>
+                    </div>
+                    <h2 className="text-2xl font-black text-indigo-700">
+                        {(stats?.newReferrals || 0) > 0
+                            ? `${(((stats?.confirmedAdmissions || 0) / (stats?.newReferrals || 1)) * 100).toFixed(1)}%`
+                            : '0.0%'}
+                    </h2>
+                </Link>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2">
@@ -339,16 +436,6 @@ export default async function CampusDashboard({ searchParams }: PageProps) {
                             </div>
                             <MoreHorizontal size={24} className="text-gray-300 group-hover:text-gray-400 transition-colors" />
                         </Link>
-
-                        <Link href="/campus?view=analytics" className="group flex items-center justify-between p-5 bg-white border border-gray-100 rounded-xl hover:bg-gray-50 hover:border-gray-200 transition-all shadow-sm">
-                            <div className="flex items-center gap-4">
-                                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg">
-                                    <BarChart3 size={20} strokeWidth={2.5} />
-                                </div>
-                                <span className="font-bold text-gray-700 text-lg">Detailed Analytics</span>
-                            </div>
-                            <MoreHorizontal size={24} className="text-gray-300 group-hover:text-gray-400 transition-colors" />
-                        </Link>
                     </div>
                 </div>
             </div>
@@ -396,8 +483,8 @@ async function RecentActivitySection({ year }: { year?: string }) {
                     Live Feed
                 </span>
             </div>
-            <div className="p-6 space-y-6">
-                {activities.map((activity: any, idx: number) => (
+            <div className="p-6 space-y-4 max-h-[380px] overflow-y-auto">
+                {activities.slice(0, 20).map((activity: any, idx: number) => (
                     <div key={idx} className="flex items-start gap-5 group p-2 hover:bg-gray-50 rounded-2xl transition-colors">
                         <div className={`p-4 rounded-2xl shadow-sm border transition-all group-hover:scale-105 group-hover:shadow-md ${activity.type === 'confirmed'
                             ? 'bg-emerald-50 text-emerald-600 border-emerald-100'

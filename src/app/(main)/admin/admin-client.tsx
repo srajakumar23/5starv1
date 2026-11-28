@@ -1,7 +1,8 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Users, TrendingUp, Award, BarChart3, IndianRupee, CheckCircle, RefreshCw, Trophy, Building2, BookOpen, Shield, GraduationCap, Phone, Mail, Clock, Plus, Filter, Search, X, Pencil, UserPlus, ShieldCheck, Calendar } from 'lucide-react'
+import Link from 'next/link'
+import { Users, TrendingUp, Award, BarChart3, IndianRupee, CheckCircle, RefreshCw, Trophy, Building2, BookOpen, Shield, GraduationCap, Phone, Mail, Clock, Plus, Filter, Search, X, Pencil, UserPlus, ShieldCheck, Calendar, AlertTriangle, ArrowUpRight } from 'lucide-react'
 import { ReferralManagementTable } from './referral-table-advanced'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
@@ -88,10 +89,11 @@ interface AdminClientProps {
     campusPerformance?: CampusPerformance[]
     permissions?: RolePermissions
     userRole?: string
+    opsPulse?: { overdue48h: number; pendingQrApprovals: number }
     syncLegacyConfirmedLeads?: () => Promise<any>
 }
 
-export function AdminClient({ referrals, referralMeta, referralStats, analytics, confirmReferral, initialView = 'analytics', campuses = [], users = [], students = [], admins = [], campusPerformance = [], permissions, userRole, syncLegacyConfirmedLeads }: AdminClientProps) {
+export function AdminClient({ referrals, referralMeta, referralStats, analytics, confirmReferral, initialView = 'analytics', campuses = [], users = [], students = [], admins = [], campusPerformance = [], permissions, userRole, opsPulse, syncLegacyConfirmedLeads }: AdminClientProps) {
     const router = useRouter()
     const searchParams = useSearchParams()
     const [statusFilter, setStatusFilter] = useState<string>('All')
@@ -207,10 +209,10 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
         }
     }, [selectedView])
 
-    // Sync state with URL
+    // Sync state with URL (alias 'analytics' -> unified 'home' command center)
     useEffect(() => {
-        const view = searchParams.get('view') || 'home'
-        setSelectedView(view)
+        const raw = searchParams.get('view') || 'home'
+        setSelectedView(raw === 'analytics' ? 'home' : raw)
     }, [searchParams])
 
     const handleCardClick = (filter: string) => {
@@ -223,13 +225,13 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
             case 'users': return 'User Directory';
             case 'admins': return 'Admin Management';
             case 'students': return 'Student Management';
-            case 'home': return 'Dashboard';
+            case 'home': return 'Executive Analytics & Command';
             case 'referrals': return 'Referral Management';
             case 'reports': return 'Detailed Reports';
             case 'engagement': return 'Engagement Center';
             case 'programs': return 'External Programs';
             case 'program-leads': return 'Program Leads';
-            default: return 'Analytics Overview';
+            default: return 'Executive Analytics & Command';
         }
     }
 
@@ -239,7 +241,7 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
             case 'users': return 'View all system users';
             case 'admins': return 'Manage system administrators';
             case 'students': return 'View registered students';
-            case 'home': return 'Quick overview and actions';
+            case 'home': return 'Real-time admissions pipeline, conversion intelligence & quick actions';
             case 'referrals': return 'Process, verify, and manage referral leads';
             case 'reports': return 'Generate and download data exports';
             case 'engagement': return 'Manage multi-channel communications';
@@ -253,7 +255,13 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
         <div className="animate-fade-in space-y-8 p-6 bg-gray-50/50 min-h-screen">
             <div className="flex items-center justify-between mb-8 xl:pr-14">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">{getTitle()}</h1>
+                    <div className="flex items-center gap-2.5">
+                        <h1 className="text-2xl font-bold text-gray-900">{getTitle()}</h1>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-wider border border-emerald-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Live{userRole ? ` • ${userRole}` : ''}
+                        </span>
+                    </div>
                     <p className="text-sm text-gray-500 mt-1">{getSubtitle()}</p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -278,6 +286,73 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
             {/* HOME VIEW - Action Focused */}
             {selectedView === 'home' && (
                 <div className="space-y-8">
+                    {/* Admissions Operations Pulse Strip */}
+                    {opsPulse && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <Link
+                                href={userRole === 'Admission Admin' ? '/superadmin/referrals' : '/admin?view=referrals'}
+                                className={`group bg-white px-4 py-3.5 rounded-2xl border shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-3 ${
+                                    opsPulse.overdue48h > 0 ? 'border-rose-200 hover:border-rose-300' : 'border-gray-100 hover:border-gray-200'
+                                }`}
+                            >
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="p-2 rounded-xl bg-rose-50 text-rose-600 shrink-0"><AlertTriangle size={16} /></div>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Overdue SLA (&gt;48h)</p>
+                                        <p className={`text-lg font-black leading-tight ${opsPulse.overdue48h > 0 ? 'text-rose-600' : 'text-gray-900'}`}>
+                                            {opsPulse.overdue48h.toLocaleString('en-IN')}
+                                        </p>
+                                    </div>
+                                </div>
+                                <ArrowUpRight size={14} className="text-gray-300 group-hover:text-rose-600 shrink-0" />
+                            </Link>
+
+                            <Link
+                                href={userRole === 'Admission Admin' ? '/superadmin/referrals?status=New' : '/admin?view=referrals&status=New'}
+                                className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-amber-200 transition-all flex items-center justify-between gap-3"
+                            >
+                                <div className="flex items-center gap-3 min-w-0">
+                                    <div className="p-2 rounded-xl bg-amber-50 text-amber-600 shrink-0"><Clock size={16} /></div>
+                                    <div className="min-w-0">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Pending Leads</p>
+                                        <p className="text-lg font-black text-gray-900 leading-tight">{(analytics?.pendingLeads || 0).toLocaleString('en-IN')}</p>
+                                    </div>
+                                </div>
+                                <ArrowUpRight size={14} className="text-gray-300 group-hover:text-amber-600 shrink-0" />
+                            </Link>
+
+                            {permissions?.paymentApproval?.access ? (
+                                <Link
+                                    href="/superadmin/approvals"
+                                    className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all flex items-center justify-between gap-3"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 shrink-0"><CheckCircle size={16} /></div>
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Manual QR Approvals</p>
+                                            <p className="text-lg font-black text-gray-900 leading-tight">{opsPulse.pendingQrApprovals.toLocaleString('en-IN')}</p>
+                                        </div>
+                                    </div>
+                                    <ArrowUpRight size={14} className="text-gray-300 group-hover:text-indigo-600 shrink-0" />
+                                </Link>
+                            ) : (
+                                <Link
+                                    href="/admin?view=analytics"
+                                    className="group bg-white px-4 py-3.5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all flex items-center justify-between gap-3"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 shrink-0"><TrendingUp size={16} /></div>
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-black uppercase tracking-wider text-gray-400 truncate">Conversion Rate</p>
+                                            <p className="text-lg font-black text-emerald-700 leading-tight">{analytics?.conversionRate || 0}%</p>
+                                        </div>
+                                    </div>
+                                    <ArrowUpRight size={14} className="text-gray-300 group-hover:text-emerald-600 shrink-0" />
+                                </Link>
+                            )}
+                        </div>
+                    )}
+
                     {/* Quick Stats Row */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                         <CleanStatCard
@@ -313,7 +388,7 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             icon={TrendingUp}
                             iconColor="bg-purple-50 text-purple-600"
                             subtext="Leads to Confirmed"
-                            href="/admin?view=analytics"
+                            href={userRole === 'Admission Admin' ? '/superadmin/referrals' : '/admin?view=referrals'}
                             compact={true}
                         />
                         <CleanStatCard
@@ -342,7 +417,7 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                             )}
                             {(permissions?.userManagement?.access) && (
                                 <button
-                                    onClick={() => router.push('/admin?view=users')}
+                                    onClick={() => router.push((userRole === 'Admission Admin' || userRole === 'Finance Admin') ? '/superadmin/users' : '/admin?view=users')}
                                     className="flex items-center justify-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors text-sm font-medium text-gray-700"
                                 >
                                     <Users size={18} />
@@ -358,19 +433,10 @@ export function AdminClient({ referrals, referralMeta, referralStats, analytics,
                                     Students
                                 </button>
                             )}
-                            {(permissions?.analytics?.access) && (
-                                <button
-                                    onClick={() => router.push('/admin?view=analytics')}
-                                    className="flex items-center justify-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors text-sm font-medium text-gray-700"
-                                >
-                                    < BarChart3 size={18} />
-                                    Analytics
-                                </button>
-                            )}
                             {/* New Referrals Button */}
                             {(permissions?.referralTracking?.access || permissions?.referralTracking?.scope !== 'none') && (
                                 <button
-                                    onClick={() => router.push('/admin?view=referrals')}
+                                    onClick={() => router.push(userRole === 'Admission Admin' ? '/superadmin/referrals' : '/admin?view=referrals')}
                                     className="flex items-center justify-center gap-3 p-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors text-sm font-medium text-gray-700"
                                 >
                                     <CheckCircle size={18} />

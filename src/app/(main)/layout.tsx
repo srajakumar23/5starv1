@@ -57,8 +57,6 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         // Admin Modules
         const baseAdminPath = isSuperAdmin ? '/superadmin' : (isCampusLevel ? '/campus' : '/admin')
 
-        if (permissions.analytics.access && !isAmbassadorRole && !isSuperAdmin) navItems.push({ label: 'Analytics', href: `${baseAdminPath}?view=analytics`, icon: <Shield /> })
-
         // Unified Campus Management
         if (permissions.campusPerformance.access && !isAmbassadorRole) {
             const campusHref = isSuperAdmin ? '/superadmin/campuses' : `${baseAdminPath}?view=campuses`
@@ -110,7 +108,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
         const canSeeSettings = isSuperAdmin || permissions.settings.access
 
         if (!isAmbassadorRole) {
-            if (isSuperAdmin || permissions.paymentApproval.access) navItems.push({ label: 'Beneficiary Verification', href: '/superadmin/verification', icon: <UserCheck /> })
+            if (isSuperAdmin) navItems.push({ label: 'Beneficiary Verification', href: '/superadmin/verification', icon: <UserCheck /> })
             
             if (isSuperAdmin || (permissions as any).marketingManager?.access) navItems.push({ label: 'Marketing Management', href: '/superadmin?view=marketing', icon: <Megaphone /> })
             if (isSuperAdmin) navItems.push({ label: 'Revenue & Payouts', href: '/superadmin?view=settlements', icon: <IndianRupee /> })
@@ -142,7 +140,7 @@ export default async function MainLayout({ children }: { children: React.ReactNo
 
         // Shared Tooling (Available to all who have permission, but hidden for Super Admin who has dedicated management views)
         if (permissions.marketingKit.access && !isSuperAdmin) navItems.push({ label: 'Promo Kit', href: '/marketing', icon: <Share2 /> })
-        if (permissions.supportDesk.access && !isSuperAdmin && user.role !== 'Admission Admin') navItems.push({ label: 'Support Desk', href: '/support', icon: <MessageSquare /> })
+        if (permissions.supportDesk.access && !isSuperAdmin && !isCampusLevel && user.role !== 'Admission Admin') navItems.push({ label: 'Support Desk', href: '/support', icon: <MessageSquare /> })
 
         // Admin-specific shared modules (Hide from Ambassadors)
         if (!isAmbassadorRole) {

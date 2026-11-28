@@ -1,5 +1,6 @@
 import { getCurrentUser } from '@/lib/auth-service'
 import { redirect } from 'next/navigation'
+import prisma from '@/lib/prisma'
 import { getAllReferrals, getAdminAnalytics, getAdminUsers, getAdminStudents, getAdminAdmins, getAdminCampusPerformance, getReferralStats } from '@/app/admin-actions'
 import { getCampuses } from '@/app/campus-actions'
 import { confirmReferral, syncLegacyConfirmedLeads } from '@/app/admin-actions'
@@ -43,7 +44,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
     if (!user || (!user.role.includes('Admin') && !user.role.includes('Campus'))) redirect('/dashboard')
 
     const params = await searchParams
-    const view = params?.view || 'home'
+    const rawView = params?.view || 'home'
+    const view = rawView === 'analytics' ? 'home' : rawView
     const page = parseInt(params.page || '1')
 
     // Parse Filters
@@ -68,11 +70,29 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
     let studentsPromise: Promise<any> = Promise.resolve({ success: true, students: [] })
     let adminsPromise: Promise<any> = Promise.resolve({ success: true, admins: [] })
     let campusPerformancePromise: Promise<any> = Promise.resolve({ success: true, campusPerformance: [] })
+    let opsPulsePromise: Promise<{ overdue48h: number; pendingQrApprovals: number }> = Promise.resolve({ overdue48h: 0, pendingQrApprovals: 0 })
 
     // Determine what to fetch based on View
     if (view === 'home' || view === 'analytics' || view === 'reports') {
+        const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000)
         analyticsPromise = getAdminAnalytics(filters.academicYear, filters.studentSource)
         campusesPromise = getCampuses()
+        if (view === 'home') {
+            opsPulsePromise = Promise.all([
+                prisma.referralLead.count({
+                    where: {
+                        leadStatus: { notIn: ['Confirmed', 'Admitted', 'Rejected'] },
+                        createdAt: { lt: fortyEightHoursAgo }
+                    }
+                }),
+                prisma.payment.count({
+                    where: {
+                        paymentMethod: 'MANUAL_QR',
+                        OR: [{ orderStatus: 'PENDING_APPROVAL' }, { paymentStatus: 'Pending Approval' }]
+                    }
+                })
+            ]).then(([overdue48h, pendingQrApprovals]) => ({ overdue48h, pendingQrApprovals }))
+        }
     }
 
     if (view === 'referrals') {
@@ -104,7 +124,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
     }
 
     // Execute necessary queries in parallel
-    const [referrals, analytics, campusesResult, referralStats, users, students, admins, campusPerformance] = await Promise.all([
+    const [referrals, analytics, campusesResult, referralStats, users, students, admins, campusPerformance, opsPulse] = await Promise.all([
         referralsPromise,
         analyticsPromise,
         campusesPromise,
@@ -112,7 +132,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
         usersPromise,
         studentsPromise,
         adminsPromise,
-        campusPerformancePromise
+        campusPerformancePromise,
+        opsPulsePromise.catch(() => ({ overdue48h: 0, pendingQrApprovals: 0 }))
     ])
 
     const permissions = await import('@/lib/permission-service').then(m => m.getMyPermissions())
@@ -135,6 +156,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
                 campusPerformance={serializeData(campusPerformance.success ? campusPerformance.campusPerformance : []) as any}
                 permissions={permissions || undefined}
                 userRole={user.role}
+                opsPulse={opsPulse}
                 syncLegacyConfirmedLeads={syncLegacyConfirmedLeads}
             />
         </ErrorBoundary>
