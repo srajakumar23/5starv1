@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { subDays } from 'date-fns'
+import { verifyBearerSecret } from '@/lib/webhook-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,9 +12,8 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: Request) {
     try {
-        // Security Check
-        const authHeader = request.headers.get('authorization')
-        if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        // Security Check (fail-closed)
+        if (!verifyBearerSecret(request, process.env.CRON_SECRET)) {
             return new NextResponse('Unauthorized', { status: 401 })
         }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import cashfree from "@/lib/cashfree";
-import { syncUserStats } from "@/app/sync-actions";
+import { syncUserStats } from "@/lib/sync-service";
 import { encryptReferralCode } from "@/lib/crypto";
 
 export async function GET(req: Request) {
@@ -13,88 +13,107 @@ export async function GET(req: Request) {
     }
 
     try {
+        const existingPayment = await prisma.payment.findUnique({
+            where: { orderId },
+            include: { user: true }
+        });
+
+        if (!existingPayment) {
+            return NextResponse.json({ error: "Order not found" }, { status: 404 });
+        }
+
+        // Idempotency guard: prevent duplicate WhatsApp welcome messages / redundant updates
+        if (existingPayment.orderStatus === "PAID" || existingPayment.paymentStatus === "Success") {
+            return NextResponse.redirect(new URL('/dashboard', req.url));
+        }
+
         const response = await cashfree.PGOrderFetchPayments(orderId);
         const payments = response.data;
 
-        // Usually checking the first payment or the one with SUCCESS status
-        const successPayment = payments?.find((p: any) => p.payment_status === "SUCCESS");
+        // Require both SUCCESS status AND valid minimum registration amount (>= ₹25)
+        const successPayment = payments?.find(
+            (p: any) => p.payment_status === "SUCCESS" && Number(p.payment_amount || 0) >= 25
+        );
         const paymentStatusFormatted = successPayment ? "Success" : "Failed";
 
-        // Update DB
-        // @ts-ignore: Payment property exists but IDE cache/client is stale
-        const updatedPayment = await prisma.payment.update({
-            where: { orderId },
-            include: { user: true },
-            data: {
-                paymentStatus: paymentStatusFormatted,
-                orderStatus: successPayment ? "PAID" : "ACTIVE",
-                // Capture new Finance Fields if success
-                ...(successPayment && {
-                    transactionId: successPayment.cf_payment_id ? String(successPayment.cf_payment_id) : undefined,
-                    paymentMethod: successPayment.payment_group, // e.g. 'upi', 'credit_card'
-                    bankReference: successPayment.bank_reference,
-                    paidAt: successPayment.payment_completion_time ? new Date(successPayment.payment_completion_time) : new Date(),
-                    gatewayResponse: successPayment as any // Store full debug data
-                })
+        const updatedPayment = await prisma.$transaction(async (tx) => {
+            const pmt = await tx.payment.update({
+                where: { orderId },
+                include: { user: true },
+                data: {
+                    paymentStatus: paymentStatusFormatted,
+                    orderStatus: successPayment ? "PAID" : "ACTIVE",
+                    ...(successPayment && {
+                        transactionId: successPayment.cf_payment_id ? String(successPayment.cf_payment_id) : undefined,
+                        paymentMethod: successPayment.payment_group,
+                        bankReference: successPayment.bank_reference,
+                        paidAt: successPayment.payment_completion_time ? new Date(successPayment.payment_completion_time) : new Date(),
+                        gatewayResponse: successPayment as any
+                    })
+                }
+            });
+
+            if (successPayment && pmt.userId) {
+                const user = (pmt as any).user;
+                let referralCode = user?.referralCode;
+
+                if (!referralCode && user) {
+                    const { generateSmartReferralCode } = await import('@/lib/referral-service');
+                    referralCode = await generateSmartReferralCode(user.role);
+                }
+
+                await tx.user.update({
+                    where: { userId: pmt.userId },
+                    data: {
+                        status: 'Active',
+                        paymentStatus: 'Success',
+                        referralCode,
+                        transactionId: successPayment.cf_payment_id ? String(successPayment.cf_payment_id) : undefined,
+                        paymentAmount: successPayment.payment_amount || undefined
+                    }
+                });
+
+                return { payment: pmt, referralCode, wasFirstActivation: user?.status !== 'Active' };
             }
+
+            return { payment: pmt, referralCode: (pmt as any).user?.referralCode, wasFirstActivation: false };
         });
 
-        // 2. If success, activate user and sync fields
-        if (successPayment && updatedPayment.userId) {
-            const user = (updatedPayment as any).user;
-            let referralCode = user?.referralCode;
+        // 2. Sync & side-effects after DB commit
+        if (successPayment && updatedPayment.payment.userId) {
+            const user = (updatedPayment.payment as any).user;
+            const referralCode = updatedPayment.referralCode;
 
-            // FIX: If upgraded passive user, generate referral code
-            if (!referralCode && user) {
-                const { generateSmartReferralCode } = await import('@/lib/referral-service');
-                referralCode = await generateSmartReferralCode(user.role);
-                console.log(`[PAYMENT_VERIFY] Generating referral code for upgraded user ${user.userId}: ${referralCode}`);
-            }
+            await syncUserStats(updatedPayment.payment.userId);
 
-            await prisma.user.update({
-                where: { userId: updatedPayment.userId },
-                data: {
-                    status: 'Active',
-                    paymentStatus: 'Success',
-                    referralCode, // Ensure it's set
-                    transactionId: successPayment.cf_payment_id ? String(successPayment.cf_payment_id) : undefined,
-                    paymentAmount: successPayment.payment_amount || undefined
-                }
-            })
-
-            // CRITICAL: Perform a deep-sync to ensure benefits/slabs/student-records are all in line
-            // ⚡ INTEGRATION: Trigger Welcome Automations & Messages
-            // We send the Welcome Message if status IS NOT Active (First time) OR if it was already active (upgrade/retry)
             if (user?.mobileNumber) {
                 const { whatsappService } = await import('@/lib/whatsapp-service');
                 const encryptedCode = encryptReferralCode(referralCode || '');
-                const marketingUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://5starambassador.com'}/r/${encryptedCode}`
-                
+                const marketingUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://5starambassador.com'}/r/${encryptedCode}`;
+
                 await whatsappService.sendByEvent(
-                    user.mobileNumber, 
-                    'WELCOME_MESSAGE', 
-                    [referralCode || 'PENDING', marketingUrl], 
+                    user.mobileNumber,
+                    'WELCOME_MESSAGE',
+                    [referralCode || 'PENDING', marketingUrl],
                     'ALERT',
                     undefined,
                     undefined,
                     [],
                     user.role || 'User',
                     user.assignedCampus || '-'
-                ).catch(err => console.error('Failed to send welcome whatsapp:', err))
+                ).catch(err => console.error('Failed to send welcome whatsapp:', err));
             }
 
-            // ⚡ Trigger Instant Automations (Smart Rules Engine) ONLY for first-time activation
-            if (user?.status !== 'Active') {
+            if (updatedPayment.wasFirstActivation) {
                 try {
-                    const { automationEngine } = await import('@/lib/automation-engine')
-                    await automationEngine.processImmediateEvent('ON_PAYMENT_SUCCESS', updatedPayment.userId, { 
-                        amount: successPayment.payment_amount || undefined 
-                    })
+                    const { automationEngine } = await import('@/lib/automation-engine');
+                    await automationEngine.processImmediateEvent('ON_PAYMENT_SUCCESS', updatedPayment.payment.userId, {
+                        amount: successPayment.payment_amount || undefined
+                    });
                 } catch (err) {
-                    console.error('[AutomationEngine] Trigger failed:', err)
+                    console.error('[AutomationEngine] Trigger failed:', err);
                 }
             }
-
         }
 
 

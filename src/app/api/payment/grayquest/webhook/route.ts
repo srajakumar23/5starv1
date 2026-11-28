@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { ensureUserReferralCode } from "@/lib/referral-service";
+import { safeSecretEquals } from "@/lib/webhook-auth";
 
 /**
  * GrayQuest Webhook Handler
@@ -8,16 +9,20 @@ import { ensureUserReferralCode } from "@/lib/referral-service";
  */
 export async function POST(req: Request) {
     try {
-        const webhookSecret = process.env.GRAYQUEST_WEBHOOK_SECRET
-        if (webhookSecret) {
-            const providedSecret =
-                req.headers.get("x-grayquest-signature") ||
-                req.headers.get("x-webhook-secret") ||
-                req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-            if (providedSecret !== webhookSecret) {
-                console.error("[GQ WEBHOOK] Unauthorized signature/secret mismatch");
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-            }
+        const webhookSecret = process.env.GRAYQUEST_WEBHOOK_SECRET;
+        if (!webhookSecret) {
+            console.error("[GQ WEBHOOK] GRAYQUEST_WEBHOOK_SECRET is not configured");
+            return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+        }
+
+        const providedSecret =
+            req.headers.get("x-grayquest-signature") ||
+            req.headers.get("x-webhook-secret") ||
+            req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+
+        if (!safeSecretEquals(providedSecret, webhookSecret)) {
+            console.error("[GQ WEBHOOK] Unauthorized signature/secret mismatch");
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
         const body = await req.json();
@@ -35,12 +40,17 @@ export async function POST(req: Request) {
 
         const existingPayment = await prisma.payment.findUnique({
             where: { orderId },
-            select: { orderId: true, userId: true, orderStatus: true, paymentStatus: true }
+            select: { orderId: true, userId: true, orderStatus: true, paymentStatus: true, orderAmount: true }
         });
 
         if (!existingPayment) {
             console.warn(`[GQ WEBHOOK] Unknown order_id rejected: ${orderId}`);
             return NextResponse.json({ error: "Order not found" }, { status: 404 });
+        }
+
+        if (Number(existingPayment.orderAmount || 0) < 25) {
+            console.warn(`[GQ WEBHOOK] Invalid orderAmount rejected: ${orderId}`);
+            return NextResponse.json({ error: "Invalid order amount" }, { status: 400 });
         }
 
         // Logic for success

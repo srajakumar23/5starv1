@@ -4,7 +4,7 @@ import { getCurrentUser } from '@/lib/auth-service'
 import { hasPermission, getPermissionScope } from '@/lib/permission-service'
 import prisma from '@/lib/prisma'
 import { generateReferralStudentDetailsCSV } from '@/lib/report-utils'
-import { getAccruedPayoutLiabilitiesInternal } from '@/app/finance-actions'
+import { getAccruedPayoutLiabilitiesInternal } from '@/lib/finance-liabilities-service'
 
 // Bypass stale Prisma types - Using string literals for statuses
 const _LeadStatus = {

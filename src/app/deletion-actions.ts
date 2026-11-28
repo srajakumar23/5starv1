@@ -84,12 +84,19 @@ export async function approveDeletion(userId: number) {
                 address: null,
                 profileImage: null,
                 bankAccountDetails: null,
+                accountNumber: null,
+                bankName: null,
+                ifscCode: null,
                 aadharNo: null,
                 empId: null,
+                childName: null,
                 childEprNo: null,
+                fcmToken: null,
                 password: null, // Clear password so they can't login
             }
         })
+
+        await prisma.deviceToken.deleteMany({ where: { userId } })
 
         await logAction('DELETE', 'user', `Account deletion APPROVED for user ID ${userId}`, String(userId))
         revalidatePath('/superadmin')

@@ -3,7 +3,7 @@
 import prisma from '@/lib/prisma'
 import { getCurrentUser } from '@/lib/auth-service'
 import { logAction } from '@/lib/audit-logger'
-import { syncUserStats } from './sync-actions'
+import { syncUserStats } from '@/lib/sync-service'
 import { revalidatePath } from 'next/cache'
 import { normalizeScientificNotation } from '@/lib/utils'
 import { ensureUserReferralCode } from '@/lib/referral-service'

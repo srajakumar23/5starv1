@@ -1,8 +1,6 @@
 'use server'
 
 import prisma from '@/lib/prisma'
-import { EmailService } from '@/lib/email-service'
-import { calculateStars } from '@/lib/gamification'
 import { logger } from '@/lib/logger'
 import { getCurrentUser } from '@/lib/auth-service'
 import { logAction } from '@/lib/audit-logger'
@@ -61,68 +59,6 @@ export async function triggerReengagementCampaign() {
         logger.error('Failed to schedule re-engagement:', error)
         return { success: false, error: 'Failed to schedule campaign' }
     }
-}
-
-/**
- * Internal logic for executing re-engagement (moved from public action)
- */
-export async function executeReengagementLogic() {
-    const fourteenDaysAgo = new Date()
-    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
-
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
-    // 1. Find all ambassadors (Staff, Alumni, Parent)
-    const ambassadors = await prisma.user.findMany({
-        where: {
-            role: { in: ['Staff', 'Alumni', 'Parent'] },
-            status: 'Active',
-            email: { not: null }
-        },
-        include: {
-            referrals: {
-                orderBy: { createdAt: 'desc' },
-                take: 1
-            }
-        }
-    })
-
-    const inactiveAmbassadors = ambassadors.filter(amb => {
-        // No referrals at all or latest referral is > 14 days old
-        const lastReferral = amb.referrals[0]
-        if (!lastReferral) return true
-        return new Date(lastReferral.createdAt) < fourteenDaysAgo
-    })
-
-    let sentCount = 0
-    for (const amb of inactiveAmbassadors) {
-        // 2. Check if we sent email in last 30 days
-        const lastEmailLog = await prisma.activityLog.findFirst({
-            where: {
-                action: 'REENGAGEMENT_EMAIL_SENT',
-                targetId: amb.userId.toString(),
-                createdAt: { gte: thirtyDaysAgo }
-            }
-        })
-
-        if (!lastEmailLog && amb.email) {
-            const stars = calculateStars(amb.confirmedReferralCount)
-            await EmailService.sendReengagementEmail(amb.email, amb.fullName, stars.tier)
-
-            // 3. Log the action
-            await logAction(
-                'REENGAGEMENT_EMAIL_SENT',
-                'engagement',
-                `Sent re-engagement email to ambassador ${amb.fullName}`,
-                amb.userId.toString(),
-                undefined, // System actor
-                { count: amb.confirmedReferralCount, tier: stars.tier }
-            )
-            sentCount++
-        }
-    }
-    return sentCount
 }
 
 export async function getEngagementStats() {

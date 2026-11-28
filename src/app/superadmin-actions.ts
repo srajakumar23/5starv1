@@ -1867,7 +1867,7 @@ export async function updateUserStatus(userId: number, status: AccountStatus) {
 
         // Force a deep sync to ensure slab/benefit consistency and guarantee Partner ID
         if (isActivating) {
-            const { syncUserStats } = await import('@/app/sync-actions')
+            const { syncUserStats } = await import('@/lib/sync-service')
             await syncUserStats(userId)
             await ensureUserReferralCode(userId)
         }

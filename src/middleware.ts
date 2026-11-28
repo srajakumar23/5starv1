@@ -5,7 +5,8 @@ import { jwtVerify } from 'jose'
 // Inline JWT verification for Edge Middleware (cannot use session.ts which requires next/headers)
 async function verifySessionToken(token: string) {
     try {
-        const secretKey = process.env.JWT_SECRET || 'fallback-for-build-only'
+        const secretKey = process.env.JWT_SECRET
+        if (!secretKey) return null
         const encodedKey = new TextEncoder().encode(secretKey)
         const { payload } = await jwtVerify(token, encodedKey, {
             algorithms: ['HS256'],
@@ -27,6 +28,12 @@ const LIMITS = {
 
 function checkRateLimit(key: string, type: keyof typeof LIMITS): boolean {
     const now = Date.now()
+    if (rateLimit.size > 5000) {
+        for (const [k, v] of rateLimit.entries()) {
+            if (now > v.resetTime) rateLimit.delete(k)
+        }
+    }
+
     const limit = LIMITS[type]
     const record = rateLimit.get(key)
 
@@ -43,20 +50,87 @@ function checkRateLimit(key: string, type: keyof typeof LIMITS): boolean {
     return true
 }
 
+function getAllowedOrigins(requestOrigin: string): Set<string> {
+    const allowed = new Set<string>([
+        requestOrigin,
+        'https://www.5starambassador.com',
+        'https://5starambassador.com',
+        'https://achariya.in',
+        'https://www.achariya.in',
+        'capacitor://localhost',
+        'http://localhost',
+        'https://localhost',
+    ])
+
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+        try {
+            allowed.add(new URL(process.env.NEXT_PUBLIC_APP_URL).origin)
+        } catch {
+            // Ignore malformed URL
+        }
+    }
+
+    if (process.env.VERCEL_URL) {
+        allowed.add(`https://${process.env.VERCEL_URL}`)
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+        allowed.add('http://localhost:3000')
+        allowed.add('http://localhost:3001')
+        allowed.add('http://127.0.0.1:3001')
+    }
+
+    return allowed
+}
+
 export async function middleware(request: NextRequest) {
+    const pathname = request.nextUrl.pathname
+
     // 1. Skip middleware for static assets
     if (
-        request.nextUrl.pathname.startsWith('/_next') ||
-        request.nextUrl.pathname.startsWith('/static') ||
-        request.nextUrl.pathname.match(/\.(ico|png|jpg|jpeg|svg|css|js)$/)
+        pathname.startsWith('/_next') ||
+        pathname.startsWith('/static') ||
+        pathname.match(/\.(ico|png|jpg|jpeg|svg|css|js)$/)
     ) {
         return NextResponse.next()
+    }
+
+    // 1.5 Dynamic Allowlisted CORS & CSRF Origin Guard on cookie-authenticated APIs
+    const origin = request.headers.get('origin')
+    const allowedOrigins = getAllowedOrigins(request.nextUrl.origin)
+    const isOriginAllowed = !origin || allowedOrigins.has(origin)
+
+    if (pathname.startsWith('/api/')) {
+        if (request.method === 'OPTIONS') {
+            if (!origin || !isOriginAllowed) {
+                return new NextResponse(null, { status: 403 })
+            }
+            return new NextResponse(null, {
+                status: 204,
+                headers: {
+                    'Access-Control-Allow-Origin': origin,
+                    'Access-Control-Allow-Credentials': 'true',
+                    'Access-Control-Allow-Methods': 'GET,DELETE,PATCH,POST,PUT,OPTIONS',
+                    'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version',
+                    'Vary': 'Origin',
+                },
+            })
+        }
+
+        const isCookieMutationApi =
+            (pathname.startsWith('/api/profile/') ||
+                pathname === '/api/payment/create-order' ||
+                pathname === '/api/payment/grayquest/create-session') &&
+            ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)
+
+        if (isCookieMutationApi && origin && !isOriginAllowed) {
+            return NextResponse.json({ error: 'Forbidden origin' }, { status: 403 })
+        }
     }
 
     // 2. Rate Limiting
     const headersList = request.headers
     const ip = headersList.get('x-forwarded-for')?.split(',')[0] || headersList.get('x-real-ip') || 'unknown'
-    const pathname = request.nextUrl.pathname
 
     let limitType: keyof typeof LIMITS = 'api'
     if (pathname.includes('login') || pathname.includes('password')) {
@@ -90,7 +164,19 @@ export async function middleware(request: NextRequest) {
     // Protected Routes Definition
     const isSuperAdminRoute = pathname.startsWith('/superadmin')
     const isAdminRoute = pathname.startsWith('/admin') || pathname.startsWith('/campus') || pathname.startsWith('/finance')
-    const isDashboardRoute = pathname.startsWith('/dashboard')
+    const isDashboardRoute =
+        pathname.startsWith('/dashboard') ||
+        pathname.startsWith('/referrals') ||
+        pathname.startsWith('/earnings') ||
+        pathname.startsWith('/profile') ||
+        pathname.startsWith('/tickets') ||
+        pathname.startsWith('/support') ||
+        pathname.startsWith('/analytics') ||
+        pathname.startsWith('/notifications') ||
+        pathname.startsWith('/marketing') ||
+        pathname.startsWith('/leaderboard') ||
+        pathname.startsWith('/program-leads') ||
+        pathname.startsWith('/rules')
 
     // Is it a protected route?
     const isProtectedRoute = isSuperAdminRoute || isAdminRoute || isDashboardRoute
@@ -118,12 +204,16 @@ export async function middleware(request: NextRequest) {
         }
 
         // Super Admin Only (except for shared modules like approvals, referrals for Admission Admin, and users for Finance/Admission Admin)
-        const isSharedAdminRoute = pathname.startsWith('/superadmin/approvals') || 
-                                 (pathname.startsWith('/superadmin/referrals') && user.role === 'Admission Admin') ||
+        const isSharedAdminRoute = (pathname.startsWith('/superadmin/approvals') && user.userType === 'admin') ||
+                                 (pathname.startsWith('/superadmin/referrals') && user.userType === 'admin' && user.role === 'Admission Admin') ||
                                  (pathname.startsWith('/superadmin/users') && user.userType === 'admin' && (user.role === 'Finance Admin' || user.role === 'Admission Admin'))
 
         if (isSuperAdminRoute && user.role !== 'Super Admin' && !isSharedAdminRoute) {
             return NextResponse.redirect(new URL('/dashboard', request.url))
+        }
+
+        if (isSuperAdminRoute && user.role === 'Super Admin' && user.is2faVerified === false) {
+            return NextResponse.redirect(new URL('/auth/verify-2fa', request.url))
         }
 
         // Admin Routes (Campus, Finance, etc.)
@@ -181,6 +271,12 @@ export async function middleware(request: NextRequest) {
         "connect-src 'self' capacitor: http://localhost:* https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://payments.grayquest.com https://grayquest.com https://checkout.grayquest.com",
     ].join('; ')
     response.headers.set('Content-Security-Policy', csp)
+
+    if (pathname.startsWith('/api/') && origin && allowedOrigins.has(origin)) {
+        response.headers.set('Access-Control-Allow-Origin', origin)
+        response.headers.set('Access-Control-Allow-Credentials', 'true')
+        response.headers.set('Vary', 'Origin')
+    }
 
     return response
 }

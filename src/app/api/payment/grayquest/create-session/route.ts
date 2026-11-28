@@ -18,13 +18,12 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        let body;
         try {
-            body = await req.json();
+            await req.json();
         } catch (e) {
             return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
         }
-        const { amount } = body;
+        const amount = 25; // Server-side enforced registration fee
 
         const user = await prisma.user.findUnique({
             where: { userId: session.userId as number },

@@ -10,7 +10,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { amount } = await req.json();
+        await req.json().catch(() => ({}));
+        const amount = 25; // Server-side enforced registration fee
 
         const user = await prisma.user.findUnique({
             where: { userId: session.userId as number },

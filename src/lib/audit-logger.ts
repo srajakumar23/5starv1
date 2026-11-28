@@ -1,6 +1,15 @@
 import prisma, { withRetry } from '@/lib/prisma'
 import { headers } from 'next/headers'
 import { getCurrentUser } from '@/lib/auth-service'
+import { after } from 'next/server'
+
+function runInBackground(task: () => Promise<void>) {
+    try {
+        after(task)
+    } catch {
+        task().catch(() => {})
+    }
+}
 
 // Keys to be scrubbed for PII protection
 const SENSITIVE_KEYS = [
@@ -48,6 +57,9 @@ async function sendToDiscord(payload: {
     const webhookUrl = process.env.DISCORD_AUDIT_WEBHOOK
     if (!webhookUrl) return
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+
     try {
         const isCritical = CRITICAL_ACTIONS.some(a => payload.action.toUpperCase().includes(a)) ||
             CRITICAL_MODULES.includes(payload.module.toUpperCase())
@@ -70,10 +82,13 @@ async function sendToDiscord(payload: {
         await fetch(webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ embeds: [embed] })
+            body: JSON.stringify({ embeds: [embed] }),
+            signal: controller.signal
         })
     } catch (error) {
         console.error('Failed to send Discord alert:', error)
+    } finally {
+        clearTimeout(timeoutId)
     }
 }
 
@@ -178,25 +193,29 @@ export async function logAction(
             CRITICAL_MODULES.includes(module.toUpperCase())
 
         if (isCritical) {
-            sendToDiscord({
+            runInBackground(() =>
+                sendToDiscord({
+                    action,
+                    module,
+                    description,
+                    actorName,
+                    ip,
+                    requestId
+                }).catch(err => console.error('Discord background alert failed:', err))
+            )
+        }
+
+        // Always archive to Google Sheets (background)
+        runInBackground(() =>
+            sendToGoogleSheets({
                 action,
                 module,
                 description,
                 actorName,
                 ip,
                 requestId
-            }).catch(err => console.error('Discord background alert failed:', err))
-        }
-
-        // Always archive to Google Sheets (fire-and-forget)
-        sendToGoogleSheets({
-            action,
-            module,
-            description,
-            actorName,
-            ip,
-            requestId
-        }).catch(err => console.error('Google Sheets background archive failed:', err))
+            }).catch(err => console.error('Google Sheets background archive failed:', err))
+        )
 
     } catch (error) {
         console.error('Failed to log activity:', error)

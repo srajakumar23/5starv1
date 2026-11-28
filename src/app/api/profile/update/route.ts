@@ -130,8 +130,7 @@ export async function POST(request: Request) {
             console.error('Prisma Error Meta:', error.meta)
         }
         return NextResponse.json({
-            error: 'Failed to update profile',
-            details: error.message
+            error: 'Failed to update profile'
         }, { status: 500 })
     }
 }

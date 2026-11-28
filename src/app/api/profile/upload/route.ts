@@ -19,13 +19,32 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'No image provided' }, { status: 400 })
         }
 
-        if (!/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(image)) {
+        const match = image.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,(.+)$/i)
+        if (!match) {
             return NextResponse.json({ error: 'Invalid image format. Allowed: JPEG, PNG, WebP, GIF.' }, { status: 400 })
         }
 
         // Guard against raw multi-MB Base64 payloads
         if (image.length > 2_000_000) {
             return NextResponse.json({ error: 'Image is too large. Please choose a smaller photo.' }, { status: 400 })
+        }
+
+        // Magic-byte verification on binary header to reject spoofed non-image payloads
+        const declaredType = match[1].toLowerCase()
+        const headerBytes = Buffer.from(match[2].slice(0, 32), 'base64')
+        const isJpeg = headerBytes.length >= 3 && headerBytes[0] === 0xff && headerBytes[1] === 0xd8 && headerBytes[2] === 0xff
+        const isPng = headerBytes.length >= 4 && headerBytes[0] === 0x89 && headerBytes[1] === 0x50 && headerBytes[2] === 0x4e && headerBytes[3] === 0x47
+        const isGif = headerBytes.length >= 4 && headerBytes.toString('ascii', 0, 4) === 'GIF8'
+        const isWebp = headerBytes.length >= 12 && headerBytes.toString('ascii', 0, 4) === 'RIFF' && headerBytes.toString('ascii', 8, 12) === 'WEBP'
+
+        const magicMatches =
+            ((declaredType === 'jpeg' || declaredType === 'jpg') && isJpeg) ||
+            (declaredType === 'png' && isPng) ||
+            (declaredType === 'gif' && isGif) ||
+            (declaredType === 'webp' && isWebp)
+
+        if (!magicMatches) {
+            return NextResponse.json({ error: 'Invalid image content.' }, { status: 400 })
         }
 
         // Store in Cloudflare R2 when configured, with automatic Base64 fallback so uploads never fail

@@ -210,8 +210,19 @@ export async function processSettlement(id: number, data: { bankReference: strin
     }
 
     try {
-        const settlement = await prisma.settlement.update({
+        const existing = await prisma.settlement.findUnique({
             where: { id },
+            select: { id: true, status: true }
+        })
+        if (!existing) {
+            return { success: false, error: 'Settlement not found' }
+        }
+        if (existing.status === 'Processed') {
+            return { success: false, error: 'Settlement has already been processed.' }
+        }
+
+        const settlement = await prisma.settlement.update({
+            where: { id, status: 'Pending' },
             data: {
                 status: 'Processed',
                 bankReference: data.bankReference,
@@ -240,7 +251,18 @@ export async function deleteSettlement(id: number) {
     }
 
     try {
-        await prisma.settlement.delete({ where: { id } })
+        const existing = await prisma.settlement.findUnique({
+            where: { id },
+            select: { id: true, status: true }
+        })
+        if (!existing) {
+            return { success: false, error: 'Settlement not found' }
+        }
+        if (existing.status === 'Processed') {
+            return { success: false, error: 'Cannot delete a processed settlement. Processed payouts are immutable audit records.' }
+        }
+
+        await prisma.settlement.delete({ where: { id, status: 'Pending' } })
         await logAction('DELETE', 'settlement', `Deleted settlement entry ${id}`, id.toString())
         revalidatePath('/superadmin')
         return { success: true }

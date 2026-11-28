@@ -27,7 +27,17 @@ export async function backupDatabase() {
             admins,
             campuses,
             feeStructures,
-            settings
+            settings,
+            settlements,
+            payments,
+            benefitSlabs,
+            academicYears,
+            rolePermissions,
+            campusTargets,
+            externalPrograms,
+            programLeads,
+            whatsappConfigs,
+            automationRules
         ] = await Promise.all([
             prisma.user.findMany().catch(e => { console.error('Backup: User table failed', e.message); return [] }),
             prisma.student.findMany().catch(e => { console.error('Backup: Student table failed', e.message); return [] }),
@@ -35,13 +45,23 @@ export async function backupDatabase() {
             prisma.admin.findMany().catch(e => { console.error('Backup: Admin table failed', e.message); return [] }),
             prisma.campus.findMany().catch(e => { console.error('Backup: Campus table failed', e.message); return [] }),
             prisma.gradeFee.findMany().catch(e => { console.error('Backup: GradeFee table failed', e.message); return [] }),
-            prisma.systemSettings.findFirst().catch(e => { console.error('Backup: SystemSettings failed', e.message); return null })
+            prisma.systemSettings.findFirst().catch(e => { console.error('Backup: SystemSettings failed', e.message); return null }),
+            prisma.settlement.findMany().catch(e => { console.error('Backup: Settlement table failed', e.message); return [] }),
+            prisma.payment.findMany().catch(e => { console.error('Backup: Payment table failed', e.message); return [] }),
+            prisma.benefitSlab.findMany().catch(e => { console.error('Backup: BenefitSlab table failed', e.message); return [] }),
+            prisma.academicYear.findMany().catch(e => { console.error('Backup: AcademicYear table failed', e.message); return [] }),
+            prisma.rolePermissions.findMany().catch(e => { console.error('Backup: RolePermissions table failed', e.message); return [] }),
+            prisma.campusTarget.findMany().catch(e => { console.error('Backup: CampusTarget table failed', e.message); return [] }),
+            prisma.externalProgram.findMany().catch(e => { console.error('Backup: ExternalProgram table failed', e.message); return [] }),
+            prisma.programLead.findMany().catch(e => { console.error('Backup: ProgramLead table failed', e.message); return [] }),
+            prisma.whatsAppConfig.findMany().catch(e => { console.error('Backup: WhatsAppConfig table failed', e.message); return [] }),
+            prisma.automationRule.findMany().catch(e => { console.error('Backup: AutomationRule table failed', e.message); return [] })
         ])
 
         const exporterName = 'adminName' in user ? user.adminName : user.fullName
         const backupData = {
             metadata: {
-                version: '1.0',
+                version: '1.1',
                 timestamp,
                 exportedBy: exporterName,
                 partial: (!users.length || !settings) // Flag if major parts are missing
@@ -53,7 +73,17 @@ export async function backupDatabase() {
                 admins,
                 campuses,
                 feeStructures,
-                settings
+                settings,
+                settlements,
+                payments,
+                benefitSlabs,
+                academicYears,
+                rolePermissions,
+                campusTargets,
+                externalPrograms,
+                programLeads,
+                whatsappConfigs,
+                automationRules
             }
         }
 
@@ -61,6 +91,8 @@ export async function backupDatabase() {
             users: users.length,
             students: students.length,
             leads: leads.length,
+            settlements: settlements.length,
+            payments: payments.length,
             size: JSON.stringify(backupData).length
         }
 
@@ -83,7 +115,7 @@ export async function backupDatabase() {
 
 /**
  * RESTORE DATABASE
- * Wipes current data and restores from a backup object.
+ * Wipes current data and restores from a backup object in strict FK order.
  * Restricted to Super Admin.
  */
 export async function restoreDatabase(backupData: any) {
@@ -104,78 +136,121 @@ export async function restoreDatabase(backupData: any) {
         admins,
         campuses,
         feeStructures,
-        settings
+        settings,
+        settlements,
+        payments,
+        benefitSlabs,
+        academicYears,
+        rolePermissions,
+        campusTargets,
+        externalPrograms,
+        programLeads,
+        whatsappConfigs,
+        automationRules
     } = backupData.data
 
     try {
-        // Use a transaction to ensure all or nothing
         await prisma.$transaction(async (tx) => {
-            // 1. DELETE EXISTING DATA (Reverse Dependency Order)
-            // Dependencies:
-            // Leads -> Users
-            // Students -> Users, Campus
-            // Users -> Campus (if linked? No, Users only link to campuses via string sometimes or minimal logic)
-            // Admins -> Campus
-            // Campuses -> FeeStructure (maybe?)
-            // FeeStructures
-
-            // Clean up dependent transactional tables first (same as reset)
+            // 1. DELETE EXISTING DATA (Strict Reverse FK Dependency Order)
             await tx.otpVerification.deleteMany({})
             await tx.notification.deleteMany({})
             await tx.ticketMessage.deleteMany({})
             await tx.supportTicket.deleteMany({})
             await tx.settlement.deleteMany({})
+            await tx.payment.deleteMany({})
+            await tx.programLead.deleteMany({})
+            await tx.externalProgram.deleteMany({})
 
-            // Core Data
-            await tx.referralLead.deleteMany({})
+            // Student -> ReferralLead, User, Campus
             await tx.student.deleteMany({})
-            await tx.user.deleteMany({}) // Parents/Ambassadors
-            await tx.admin.deleteMany({}) // Admins
-            await tx.campus.deleteMany({})
-            await tx.gradeFee.deleteMany({})
+            await tx.referralLead.deleteMany({})
+            await tx.user.deleteMany({})
+            await tx.admin.deleteMany({})
 
-            // System Settings (Upsert usually, but we can delete and create)
+            // Campus children before Campus
+            await tx.campusTarget.deleteMany({})
+            await tx.gradeFee.deleteMany({})
+            await tx.campus.deleteMany({})
             await tx.systemSettings.deleteMany({})
 
-            // 2. RESTORE DATA (Dependency Order)
+            // Only wipe configuration tables when present in the backup archive (preserves backward compatibility with v1.0)
+            if (Array.isArray(benefitSlabs)) await tx.benefitSlab.deleteMany({})
+            if (Array.isArray(academicYears)) await tx.academicYear.deleteMany({})
+            if (Array.isArray(rolePermissions)) await tx.rolePermissions.deleteMany({})
+            if (Array.isArray(whatsappConfigs)) await tx.whatsAppConfig.deleteMany({})
+            if (Array.isArray(automationRules)) await tx.automationRule.deleteMany({})
 
-            // System Settings
+            // 2. RESTORE DATA (Strict FK Dependency Order)
             if (settings) {
-                // Remove ID to let DB handle it or force it? usually ID=1
-                // Backup includes ID.
                 await tx.systemSettings.create({ data: settings })
             }
 
-            // Fee Structures
-            if (feeStructures && feeStructures.length > 0) {
-                await tx.gradeFee.createMany({ data: feeStructures })
-            }
-
-            // Campuses
+            // Campuses MUST be created BEFORE gradeFee and campusTargets
             if (campuses && campuses.length > 0) {
                 await tx.campus.createMany({ data: campuses })
             }
 
-            // Admins
+            if (feeStructures && feeStructures.length > 0) {
+                await tx.gradeFee.createMany({ data: feeStructures })
+            }
+
+            if (campusTargets && campusTargets.length > 0) {
+                await tx.campusTarget.createMany({ data: campusTargets })
+            }
+
+            if (benefitSlabs && benefitSlabs.length > 0) {
+                await tx.benefitSlab.createMany({ data: benefitSlabs })
+            }
+
+            if (academicYears && academicYears.length > 0) {
+                await tx.academicYear.createMany({ data: academicYears })
+            }
+
+            if (rolePermissions && rolePermissions.length > 0) {
+                await tx.rolePermissions.createMany({ data: rolePermissions })
+            }
+
+            if (whatsappConfigs && whatsappConfigs.length > 0) {
+                await tx.whatsAppConfig.createMany({ data: whatsappConfigs })
+            }
+
+            if (automationRules && automationRules.length > 0) {
+                await tx.automationRule.createMany({ data: automationRules })
+            }
+
             if (admins && admins.length > 0) {
                 await tx.admin.createMany({ data: admins })
             }
 
-            // Users
             if (users && users.length > 0) {
                 await tx.user.createMany({ data: users })
             }
 
-            // Students
+            // ReferralLeads MUST be created BEFORE Students (Student.referralLeadId -> ReferralLead.leadId)
+            if (leads && leads.length > 0) {
+                await tx.referralLead.createMany({ data: leads })
+            }
+
             if (students && students.length > 0) {
                 await tx.student.createMany({ data: students })
             }
 
-            // Leads
-            if (leads && leads.length > 0) {
-                await tx.referralLead.createMany({ data: leads })
+            if (payments && payments.length > 0) {
+                await tx.payment.createMany({ data: payments })
             }
-        })
+
+            if (settlements && settlements.length > 0) {
+                await tx.settlement.createMany({ data: settlements })
+            }
+
+            if (externalPrograms && externalPrograms.length > 0) {
+                await tx.externalProgram.createMany({ data: externalPrograms })
+            }
+
+            if (programLeads && programLeads.length > 0) {
+                await tx.programLead.createMany({ data: programLeads })
+            }
+        }, { timeout: 60000 })
 
         await logAction(
             'IMPORT',

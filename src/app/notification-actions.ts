@@ -247,9 +247,14 @@ export async function registerDevice(token: string, platform: 'WEB' | 'ANDROID' 
  * Removes a device token (e.g., on Logout).
  */
 export async function unregisterDevice(token: string) {
+    const session = await getSession()
+    if (!session?.userId) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     try {
-        await prisma.deviceToken.delete({
-            where: { token }
+        await prisma.deviceToken.deleteMany({
+            where: { token, userId: Number(session.userId) }
         })
         return { success: true }
     } catch (error) {

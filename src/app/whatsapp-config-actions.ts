@@ -79,6 +79,11 @@ export async function createWhatsAppConfig(data: Omit<WhatsAppConfigData, 'id'>)
 }
 
 export async function seedDefaultConfigs() {
+    const user = await getCurrentUser()
+    if (!user || (user.role !== 'Super Admin' && !(await hasPermission('whatsappConfig')))) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     const defaults = [
         { eventKey: 'WELCOME_MESSAGE', templateName: 'welcome_message', requiredVariablesCount: 2, description: 'Immediate welcome message with referral code and link.' },
         { eventKey: 'WELCOME_DRIP_DAY1', templateName: 'welcome_drip_day1', requiredVariablesCount: 1, description: 'Day 1 educational video tip.' },

@@ -185,6 +185,12 @@ export async function updateRolePermissions(role: string, permissions: RolePermi
                 academicCyclesScope: permissions.academicCycles?.scope ?? 'none',
                 disasterRecoveryAccess: permissions.disasterRecovery?.access ?? false,
                 disasterRecoveryScope: permissions.disasterRecovery?.scope ?? 'none',
+                whatsappConfigAccess: permissions.whatsappConfig?.access ?? false,
+                whatsappConfigScope: permissions.whatsappConfig?.scope ?? 'none',
+                campaignsAccess: permissions.campaigns?.access ?? false,
+                campaignsScope: permissions.campaigns?.scope ?? 'none',
+                marketingManagerAccess: permissions.marketingManager?.access ?? false,
+                marketingManagerScope: permissions.marketingManager?.scope ?? 'none',
                 updatedBy: admin.fullName
             } as any,
             update: {
@@ -258,7 +264,7 @@ export async function updateRolePermissions(role: string, permissions: RolePermi
         revalidatePath('/')
 
         // Log the action (1.5)
-        await logAction('PERMISSION_CHANGE', 'permissions', `Updated permissions for role: ${role}`, role, JSON.stringify({ permissions }))
+        await logAction('PERMISSION_CHANGE', 'permissions', `Updated permissions for role: ${role}`, role, admin.userId, { permissions })
 
         return { success: true }
     } catch (error: any) {

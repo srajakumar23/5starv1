@@ -18,6 +18,14 @@
         {
             "path": "/api/cron/keepalive",
             "schedule": "*/5 0-17 * * *"
+        },
+        {
+            "path": "/api/cron/cleanup-audit-logs",
+            "schedule": "0 21 * * 0"
+        },
+        {
+            "path": "/api/cron/sync-leads",
+            "schedule": "0 */4 * * *"
         }
     ]
 }

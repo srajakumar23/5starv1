@@ -4,11 +4,12 @@
 import prisma, { withRetry } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import { generateSmartReferralCode } from '@/lib/referral-service'
-import { syncUserStats } from './sync-actions'
+import { syncUserStats } from '@/lib/sync-service'
 import { encrypt, decrypt } from '@/lib/encryption'
-import { createSession } from '@/lib/session'
+import { createSession, setOtpVerifiedCookie, verifyOtpVerifiedCookie, clearOtpVerifiedCookie } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 
 import { smsService } from '@/lib/sms-service'
 import { whatsappService } from '@/lib/whatsapp-service'
@@ -90,11 +91,10 @@ export async function sendOtp(mobileInput: string, forceOtp: boolean = false, fl
 
         // Smart Sticky: Reuse if valid for at least 60 more seconds
         if (existingRecord && existingRecord.expiresAt > new Date(Date.now() + 60000)) {
-            console.log('[DEBUG] Smart Sticky: Reusing existing OTP', existingRecord.otp)
             finalOtp = existingRecord.otp
         } else {
-            // 2. Generate New
-            finalOtp = Math.floor(1000 + Math.random() * 9000).toString()
+            // 2. Generate New using cryptographically strong CSPRNG (4-digit format preserved for DLT/UI)
+            finalOtp = crypto.randomInt(1000, 10000).toString()
             const expiresAt = new Date(Date.now() + 3 * 60 * 1000) // 3 Minutes
 
             // 3. Upsert (Atomic Update) - This handles the "Delete then Create" raciness implicitly
@@ -103,7 +103,6 @@ export async function sendOtp(mobileInput: string, forceOtp: boolean = false, fl
                 update: { otp: finalOtp, expiresAt },
                 create: { mobile, otp: finalOtp, expiresAt }
             }))
-            console.log('[DEBUG] Generated New OTP:', finalOtp)
         }
 
         // Send SMS
@@ -113,9 +112,6 @@ export async function sendOtp(mobileInput: string, forceOtp: boolean = false, fl
         try {
             const settings = await withRetry(() => prisma.notificationSettings.findFirst())
             if (settings?.whatsappNotifications) {
-                // We use a generic OTP template name. User will need to ensure this exists in MSG91.
-                // Template: "Your Achariya OTP is {{1}}. Valid for 3 minutes."
-                // await whatsappService.sendTemplateMessage(mobile, "otp_verification", [finalOtp])
                 console.log('💬 [Action] WhatsApp OTP triggered for:', mobile, '(ON HOLD)')
             }
         } catch (waError) {
@@ -124,9 +120,6 @@ export async function sendOtp(mobileInput: string, forceOtp: boolean = false, fl
 
         if (!smsResult.success) {
             console.error('[Action] SMS Failed:', smsResult.error)
-            // CRITICAL FIX: DO NOT DELETE RECORD ON FAILURE!
-            // This prevents "Phantom OTPs" where the user got the SMS but we deleted the record.
-            // If they click "Resend", we will just pick up the Sticky OTP above and try sending again.
             return { success: false, error: 'SMS delivery failed. Please click Resend.' }
         }
 
@@ -139,26 +132,28 @@ export async function sendOtp(mobileInput: string, forceOtp: boolean = false, fl
 
     } catch (error: any) {
         console.error('sendOtp error:', error)
-        
-        // SENIOR EXPERT DIAGNOSTIC: Detect hostname typo in Vercel envs
-        if (error.message?.includes('ep-patient-art-v393a12a-pooler')) {
-            return { 
-                success: false, 
-                exists: false, 
-                error: 'Database Configuration Typo Detected. Please update Vercel DATABASE_URL hostname from v393a12a to a1v3932a.' 
-            }
-        }
-
-        return { success: false, exists: false, error: `System error: ${error.message}` }
+        return { success: false, exists: false, error: 'Unable to process OTP request. Please try again.' }
     }
 }
 
 export async function verifyOtpAndResetPassword(mobileInput: string, otp: string, newPassword: string) {
     if (!mobileInput || !otp || !newPassword) return { success: false, error: 'Missing information' }
 
-    let mobile = mobileInput.replace(/\D/g, '')
-    if (mobile.length > 10 && mobile.startsWith('91')) {
-        mobile = mobile.slice(2)
+    const mobile = sanitizeMobile(mobileInput)
+
+    // Rate-limit OTP verification attempts during password reset (max 5 / 15m)
+    const resetLimitKey = `verify:reset:${mobile}`
+    const now = new Date()
+    const resetLimit = await prisma.rateLimit.findUnique({ where: { key: resetLimitKey } })
+    if (resetLimit && resetLimit.resetAt > now && resetLimit.count >= 5) {
+        const timeLeft = Math.ceil((resetLimit.resetAt.getTime() - now.getTime()) / 60000)
+        return { success: false, error: `Too many failed attempts. Please try again in ${timeLeft} minutes.` }
+    }
+
+    // Enforce strong password policy matching UI
+    const passwordRegex = /^(?=.*[0-9])(?=.*[!@#$%^&*])(?=.*[A-Z])[a-zA-Z0-9!@#$%^&*]{8,}$/
+    if (!passwordRegex.test(newPassword)) {
+        return { success: false, error: 'Password must be at least 8 chars with 1 uppercase, 1 special char, and 1 number.' }
     }
 
     // 1. Verify OTP
@@ -168,11 +163,22 @@ export async function verifyOtpAndResetPassword(mobileInput: string, otp: string
 
     if (!record) return { success: false, error: 'Request expired. Please try again.' }
 
-    if (record.otp !== otp || new Date() > record.expiresAt) {
+    if (now > record.expiresAt) {
+        return { success: false, error: 'OTP has expired. Please request a new one.' }
+    }
+
+    if (record.otp !== otp) {
+        await prisma.rateLimit.upsert({
+            where: { key: resetLimitKey },
+            update: { count: { increment: 1 } },
+            create: { key: resetLimitKey, count: 1, resetAt: new Date(now.getTime() + 15 * 60 * 1000) }
+        })
+        await logAction('PASSWORD_RESET_OTP_FAILURE', 'auth', `Incorrect reset OTP attempt for ${mobile}`, mobile)
         return { success: false, error: 'Invalid or expired OTP' }
     }
 
-    // 2. Hash Password
+    // 2. Clear throttling & hash password
+    await prisma.rateLimit.delete({ where: { key: resetLimitKey } }).catch(() => null)
     const hashedPassword = await bcrypt.hash(newPassword, 10)
 
     // 3. Update User or Admin
@@ -183,6 +189,7 @@ export async function verifyOtpAndResetPassword(mobileInput: string, otp: string
             data: { password: hashedPassword }
         })
         await prisma.otpVerification.delete({ where: { mobile } })
+        await clearOtpVerifiedCookie()
         return { success: true }
     }
 
@@ -193,6 +200,7 @@ export async function verifyOtpAndResetPassword(mobileInput: string, otp: string
             data: { password: hashedPassword }
         })
         await prisma.otpVerification.delete({ where: { mobile } })
+        await clearOtpVerifiedCookie()
         return { success: true }
     }
 
@@ -202,13 +210,7 @@ export async function verifyOtpAndResetPassword(mobileInput: string, otp: string
 export async function verifyOtpOnly(otp: string, mobileInput?: string) {
     if (!mobileInput) return { success: false, error: 'Mobile number required' }
 
-    // Standardized Sanitization
-    let mobile = mobileInput.replace(/\D/g, '')
-    if (mobile.length > 10 && mobile.startsWith('91')) {
-        mobile = mobile.slice(2)
-    }
-
-    console.log('[DEBUG] verifyOtpOnly called:', { otp, mobileInput, sanitized: mobile })
+    const mobile = sanitizeMobile(mobileInput)
 
     const verifyLimitKey = `verify:otp:${mobile}`
     const verifyLimit = await prisma.rateLimit.findUnique({ where: { key: verifyLimitKey } })
@@ -224,21 +226,11 @@ export async function verifyOtpOnly(otp: string, mobileInput?: string) {
     })
 
     if (!record) {
-        console.log('[DEBUG] No OTP record found for mobile:', mobile)
         return { success: false, error: 'OTP request expired or invalid. Try again.' }
     }
 
     const isExpired = now > record.expiresAt
     const isMatch = record.otp === otp
-
-    console.log('[DEBUG] OTP Verification:', {
-        serverTime: now,
-        expiresAt: record.expiresAt,
-        isExpired,
-        isMatch,
-        recordOtp: record.otp,
-        receivedOtp: otp
-    })
 
     if (isExpired) {
         return { success: false, error: 'OTP has expired. Please request a new one.' }
@@ -256,20 +248,29 @@ export async function verifyOtpOnly(otp: string, mobileInput?: string) {
         return { success: false, error: 'Incorrect OTP. Please check and try again.' }
     }
 
-    // Success: Clear throttling counter
+    // Success: Clear throttling counter & issue signed verification proof cookie
     await prisma.rateLimit.delete({ where: { key: verifyLimitKey } }).catch(() => null)
+    await setOtpVerifiedCookie(mobile)
     await logAction('OTP_VERIFY_SUCCESS', 'auth', `OTP verified successfully for ${mobile}`, mobile)
 
     return { success: true }
-
-    // Backdoor: Only allow in development OR if explicitly using mock provider
-    // const isMockMode = process.env.NODE_ENV === 'development' && process.env.SMS_PROVIDER !== 'msg91'
-    // if (otp === '1234' && isMockMode) return { success: true }
-
 }
 
 export async function loginWithPassword(mobileInput: string, password: string) {
     const mobile = sanitizeMobile(mobileInput)
+    const now = new Date()
+    const loginLimitKey = `login:${mobile}`
+
+    const [securitySettings, loginLimit] = await withRetry(() => Promise.all([
+        prisma.securitySettings.findFirst(),
+        prisma.rateLimit.findUnique({ where: { key: loginLimitKey } })
+    ])) as [any, any]
+
+    const maxAttempts = securitySettings?.maxLoginAttempts || 5
+    if (loginLimit && loginLimit.resetAt > now && loginLimit.count >= maxAttempts) {
+        const timeLeft = Math.ceil((loginLimit.resetAt.getTime() - now.getTime()) / 60000)
+        return { success: false, error: `Too many failed login attempts. Please try again in ${timeLeft} minutes.` }
+    }
 
     // Check User
     const user = await withRetry(() => prisma.user.findUnique({
@@ -277,14 +278,19 @@ export async function loginWithPassword(mobileInput: string, password: string) {
     }))
 
     if (user) {
-        if (user.status === 'Deleted') {
-            await logAction('LOGIN_DELETED_ACCOUNT', 'auth', `Login attempt for deleted account: ${mobile}`, user.userId.toString(), user.userId, { isUser: true })
-            return { success: false, error: 'This account has been deleted.' }
-        }
         if (user.password) {
             const isValid = await bcrypt.compare(password, user.password)
             if (isValid) {
-                const securitySettings = await withRetry(() => prisma.securitySettings.findFirst()) as any
+                if (user.status === 'Deleted') {
+                    await logAction('LOGIN_DELETED_ACCOUNT', 'auth', `Login attempt for deleted account: ${mobile}`, user.userId.toString(), user.userId, { isUser: true })
+                    return { success: false, error: 'This account has been deleted.' }
+                }
+                if (user.status === 'Suspended') {
+                    await logAction('LOGIN_SUSPENDED_ACCOUNT', 'auth', `Login attempt for suspended account: ${mobile}`, user.userId.toString(), user.userId, { isUser: true })
+                    return { success: false, error: 'Your account has been suspended. Please contact support.' }
+                }
+
+                await prisma.rateLimit.delete({ where: { key: loginLimitKey } }).catch(() => null)
                 const isSuperAdmin = mapUserRole(user.role) === 'Super Admin'
                 const is2faRequired = isSuperAdmin && securitySettings?.twoFactorAuthEnabled
 
@@ -293,9 +299,13 @@ export async function loginWithPassword(mobileInput: string, password: string) {
                 return { success: true }
             }
         }
-        // Failed user login attempt — audit trail for security monitoring
+        await prisma.rateLimit.upsert({
+            where: { key: loginLimitKey },
+            update: { count: { increment: 1 } },
+            create: { key: loginLimitKey, count: 1, resetAt: new Date(now.getTime() + 15 * 60 * 1000) }
+        })
         await logAction('FAILED_LOGIN', 'auth', `Failed login attempt for user: ${mobile}`, user.userId.toString(), user.userId, { isUser: true })
-        return { success: false, error: 'Incorrect password' }
+        return { success: false, error: 'Invalid mobile number or password' }
     }
 
     // Check Admin
@@ -307,7 +317,12 @@ export async function loginWithPassword(mobileInput: string, password: string) {
         if (admin.password) {
             const isValid = await bcrypt.compare(password, admin.password)
             if (isValid) {
-                const securitySettings = await withRetry(() => prisma.securitySettings.findFirst()) as any
+                if (admin.status !== 'Active') {
+                    await logAction('LOGIN_INACTIVE_ADMIN', 'auth', `Login attempt for inactive/suspended admin: ${mobile}`, admin.adminId.toString(), admin.adminId, { isAdmin: true })
+                    return { success: false, error: 'This administrator account is inactive. Please contact Super Admin.' }
+                }
+
+                await prisma.rateLimit.delete({ where: { key: loginLimitKey } }).catch(() => null)
                 const isAdminRole = mapAdminRole(admin.role) === 'Super Admin'
                 const is2faRequired = isAdminRole && securitySettings?.twoFactorAuthEnabled
 
@@ -316,14 +331,22 @@ export async function loginWithPassword(mobileInput: string, password: string) {
                 return { success: true }
             }
         }
-        // Failed admin login attempt
+        await prisma.rateLimit.upsert({
+            where: { key: loginLimitKey },
+            update: { count: { increment: 1 } },
+            create: { key: loginLimitKey, count: 1, resetAt: new Date(now.getTime() + 15 * 60 * 1000) }
+        })
         await logAction('FAILED_LOGIN', 'auth', `Failed Admin login attempt for: ${mobile}`, admin.adminId.toString(), admin.adminId, { isAdmin: true })
-        return { success: false, error: 'Incorrect password' }
+        return { success: false, error: 'Invalid mobile number or password' }
     }
 
-    // NEW: Log attempt for non-existent user/admin
+    await prisma.rateLimit.upsert({
+        where: { key: loginLimitKey },
+        update: { count: { increment: 1 } },
+        create: { key: loginLimitKey, count: 1, resetAt: new Date(now.getTime() + 15 * 60 * 1000) }
+    })
     await logAction('LOGIN_USER_NOT_FOUND', 'auth', `Login attempt for non-existent mobile: ${mobile}`, mobile)
-    return { success: false, error: 'User not found' }
+    return { success: false, error: 'Invalid mobile number or password' }
 }
 
 export async function loginUser(mobile: string) {
@@ -385,8 +408,15 @@ export async function getRegistrationCampuses() {
 }
 
 export async function registerUser(formData: any) {
-    const { fullName, mobileNumber, password, role, childInAchariya, childName, bankAccountDetails, campusId, grade, childEprNo, empId, aadharNo, email, childCampusId } = formData
+    const { fullName, mobileNumber: rawMobileNumber, password, role, childInAchariya, childName, bankAccountDetails, campusId, grade, childEprNo, empId, aadharNo, email, childCampusId } = formData
+    const mobileNumber = sanitizeMobile(rawMobileNumber || '')
     const transactionId = normalizeScientificNotation(formData.transactionId)
+
+    // Require cryptographic proof of recent OTP verification for this mobile number
+    const otpVerified = await verifyOtpVerifiedCookie(mobileNumber)
+    if (!otpVerified) {
+        return { success: false, error: 'OTP verification expired. Please verify your mobile number again.' }
+    }
 
     // Secure Password Policy Check
     const passwordRegex = /^(?=.*[0-9])(?=.*[!@#$%^&*])(?=.*[A-Z])[a-zA-Z0-9!@#$%^&*]{8,}$/;
@@ -513,7 +543,8 @@ export async function registerUser(formData: any) {
             const isSuperAdmin = role === 'Super Admin'
             const is2faRequired = isSuperAdmin && securitySettings?.twoFactorAuthEnabled
 
-            await createSession(user.userId, 'user', mapUserRole(user.role), !is2faRequired)
+            await createSession(user.userId, 'user', mapUserRole(user.role), !is2faRequired, user.status)
+            await clearOtpVerifiedCookie()
 
             // Sync: Notify Admin Verification Queue
             if (childInAchariya === 'Yes') {
@@ -572,11 +603,11 @@ export async function registerUser(formData: any) {
                                     assignedCampus: assignedCampusName,
                                     campusId: campusId ? parseInt(campusId) : null,
                                     grade: grade || existingUser.grade,
-                                    // Record the payment made during registration
+                                    // Record the payment made during registration (gatekeeper keeps Pending until verified)
                                     paymentStatus: transactionId ? 'Success' : 'Pending',
                                     transactionId: transactionId || null,
                                     paymentAmount: transactionId ? 25 : 0,
-                                    status: transactionId ? AccountStatus.Active : AccountStatus.Pending
+                                    status: AccountStatus.Pending
                                 }
                             })
 
@@ -590,14 +621,15 @@ export async function registerUser(formData: any) {
                                 { oldRole: existingUser.role, newRole: updatedUser.role, upgradeCode }
                             )
 
-                            return { success: true, userId: updatedUser.userId, role: updatedUser.role }
+                            return { success: true, userId: updatedUser.userId, role: updatedUser.role, status: updatedUser.status }
                         }
                         return null
                     })
 
                     if (result?.success) {
                         // Create session and log them in (outside transaction for side-effect safety)
-                        await createSession(result.userId, 'user', mapUserRole(result.role as any), false)
+                        await createSession(result.userId, 'user', mapUserRole(result.role as any), true, result.status)
+                        await clearOtpVerifiedCookie()
 
                         // ⚡ INTEGRATION: Trigger Instant Automations for Upgraded Users
                         try {
@@ -621,7 +653,14 @@ export async function registerUser(formData: any) {
 }
 
 export async function createPendingUser(formData: any) {
-    const { fullName, mobileNumber, password, role, childInAchariya, childName, bankAccountDetails, campusId, grade, childEprNo, empId, aadharNo, email } = formData
+    const { fullName, mobileNumber: rawMobileNumber, password, role, childInAchariya, childName, bankAccountDetails, campusId, grade, childEprNo, empId, aadharNo, email } = formData
+    const mobileNumber = sanitizeMobile(rawMobileNumber || '')
+
+    // Require cryptographic proof of recent OTP verification for this mobile number
+    const otpVerified = await verifyOtpVerifiedCookie(mobileNumber)
+    if (!otpVerified) {
+        return { success: false, error: 'OTP verification expired. Please verify your mobile number again.' }
+    }
 
     // Secure Password Policy Check
     const passwordRegex = /^(?=.*[0-9])(?=.*[!@#$%^&*])(?=.*[A-Z])[a-zA-Z0-9!@#$%^&*]{8,}$/;
@@ -708,6 +747,7 @@ export async function createPendingUser(formData: any) {
             const is2faRequired = isSuperAdmin && securitySettings?.twoFactorAuthEnabled
 
             await createSession(user.userId, 'user', mapUserRole(user.role), !is2faRequired, user.status)
+            await clearOtpVerifiedCookie()
 
             return { success: true, userId: user.userId }
 
@@ -772,12 +812,21 @@ export async function simulatePayment(userId: number) {
 }
 
 export async function submitManualPayment(formData: FormData) {
+    const currentUser = await getCurrentUser()
+    if (!currentUser || !('userId' in currentUser)) {
+        return { success: false, error: 'Unauthorized. Please login again.' }
+    }
+
+    const userId = Number(currentUser.userId)
+    if ((currentUser as any).paymentStatus === 'Success' || currentUser.status === 'Active') {
+        return { success: false, error: 'Registration payment is already completed.' }
+    }
+
     const rawUtr = formData.get('utr') as string
     const utr = normalizeScientificNotation(rawUtr?.trim().toUpperCase())
-    const amount = parseFloat(formData.get('amount') as string)
-    const userId = parseInt(formData.get('userId') as string)
+    const amount = 25 // Server-side enforced registration fee
 
-    if (!utr || !amount || !userId) {
+    if (!utr || !userId) {
         return { success: false, error: 'Missing required fields' }
     }
 

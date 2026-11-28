@@ -55,7 +55,7 @@ export async function approveManualPayment(orderId: string) {
         })
 
         // 4. CRITICAL: Perform a deep-sync to ensure benefits/slabs/student-records are all in line
-        const { syncUserStats } = await import('@/app/sync-actions')
+        const { syncUserStats } = await import('@/lib/sync-service')
         await syncUserStats(payment.userId)
         await ensureUserReferralCode(payment.userId, payment.user.role)
 

@@ -1,5 +1,6 @@
 import { format } from 'date-fns'
 import { toast } from 'sonner'
+import { escapeCsvField, neutralizeCsvFormula } from './csv-sanitize'
 
 export function exportToCSV(data: any[], filename: string, columns: { header: string, maxLen?: number, accessor?: (row: any) => any, forceString?: boolean }[]) {
     if (!data || data.length === 0) {
@@ -8,7 +9,7 @@ export function exportToCSV(data: any[], filename: string, columns: { header: st
     }
 
     // Extract headers
-    const headers = columns.map(c => c.header).join(',')
+    const headers = columns.map(c => escapeCsvField(c.header)).join(',')
 
     // Extract rows
     const csvRows: string[] = [headers]
@@ -23,28 +24,24 @@ export function exportToCSV(data: any[], filename: string, columns: { header: st
             // Convert dates if generic (though accessor usually handles format)
             if (val instanceof Date) val = format(val, 'yyyy-MM-dd')
 
-            let str = String(val).replace(/(\r\n|\n|\r)/gm, " ").replace(/"/g, '""')
+            const rawStr = String(val).replace(/(\r\n|\n|\r)/gm, " ")
 
-            // Permanent Solution for Scientific Notation: 
-            // If forceString is true or if it's a long numeric string (Mobile/UTR)
-            // wrap it in Excel formula format: ="VAL" to prevent auto-conversion to num/scientific
-            const looksLikeLongNumber = /^\d{10,}$/.test(str)
-            if (c.forceString || looksLikeLongNumber) {
-                // Use the ="   " trick for Excel compatibility
-                // Adding a \t (tab) inside helps ensure it's treated as string even in weird edge cases
-                return `="\t${str}"`
+            // Permanent Solution for Scientific Notation:
+            // If forceString is true or if it's a long numeric string (Mobile/UTR),
+            // only wrap safe non-formula alphanumerics/digits in ="\tVAL"
+            const looksLikeLongNumber = /^\d{10,}$/.test(rawStr.trim())
+            if ((c.forceString || looksLikeLongNumber) && rawStr.trim() !== '') {
+                const safeToken = rawStr.replace(/["\t]/g, '').trim()
+                if (/^[A-Za-z0-9][A-Za-z0-9\s._\-/]*$/.test(safeToken)) {
+                    return `="\t${safeToken}"`
+                }
             }
 
-            // If it's already a formula, allow it
-            if (str.startsWith('="') && str.endsWith('"')) {
-                return str
+            const safe = neutralizeCsvFormula(rawStr)
+            if (safe.includes(',') || safe.includes('"') || safe !== rawStr) {
+                return `"${safe.replace(/"/g, '""')}"`
             }
-
-            // Standard CSV quoting
-            if (str.includes(',') || str.includes('"')) {
-                return `"${str}"`
-            }
-            return str
+            return safe
         }).join(',')
         csvRows.push(rowContent)
     })

@@ -4,7 +4,8 @@ import { EmailService } from '@/lib/email-service'
 import { whatsappService } from '@/lib/whatsapp-service'
 import { logAction } from '@/lib/audit-logger'
 import { generateReferralStudentDetailsCSV } from '@/lib/report-utils'
-import { getAccruedPayoutLiabilitiesInternal } from '@/app/finance-actions'
+import { getAccruedPayoutLiabilitiesInternal } from '@/lib/finance-liabilities-service'
+import { verifyBearerSecret } from '@/lib/webhook-auth'
 
 /**
  * Campus Referral Report Cron Job
@@ -13,14 +14,14 @@ import { getAccruedPayoutLiabilitiesInternal } from '@/app/finance-actions'
  * Every Friday: Also sends Weekly Summary to Campus + CC Director
  */
 export async function GET(request: Request) {
-    const authHeader = request.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (!verifyBearerSecret(request, process.env.CRON_SECRET)) {
         return new Response('Unauthorized', { status: 401 })
     }
 
     try {
         const now = new Date()
-        const isFriday = now.getDay() === 5
+        const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
+        const isFriday = istNow.getUTCDay() === 5
         
         // Date Ranges
         const dailyStart = new Date(now.getTime() - 24 * 60 * 60 * 1000)

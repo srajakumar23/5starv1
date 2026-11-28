@@ -1,5 +1,6 @@
 import { decrypt } from './encryption';
 import { getSpecialBonusRate } from './reward-constants';
+import { escapeCsvField, formatSafeExcelDigits } from './csv-sanitize';
 
 export const REFERRAL_STUDENT_DETAILS_HEADERS = [
     'List',
@@ -78,12 +79,14 @@ export function generateReferralStudentDetailsCSV(referrals: any[]) {
 
         const totalPayment = admShare + donShare + specialCampusShare + slabReward;
 
+        const safeAccNo = accNo ? `'${String(accNo).replace(/[\r\n"]/g, '')}` : ''
+
         const row = [
             user.role === 'Staff' ? 'List B' : 'List C',
             ref.academicYear || '2026-2027',
             ref.leadId || 'N/A',
             ref.parentName || 'N/A',
-            ref.parentMobile ? `="${ref.parentMobile}"` : '',
+            ref.parentMobile ? formatSafeExcelDigits(ref.parentMobile) : '',
             ref.studentName || 'N/A',
             ref.admissionNumber || '',
             ref.gradeInterested || '',
@@ -109,13 +112,16 @@ export function generateReferralStudentDetailsCSV(referrals: any[]) {
             ref.createdAt ? new Date(ref.createdAt).toLocaleDateString() : 'N/A',
             ref.confirmedDate ? new Date(ref.confirmedDate).toLocaleDateString() : (ref.leadStatus === 'Admitted' ? 'Admitted' : 'Pending'),
             bankName,
-            `'${accNo}`,
+            safeAccNo,
             ifsc
         ];
 
-        rows.push(row.map(val => {
-            if (typeof val === 'string' && val.startsWith('=')) return val;
-            return `"${val}"`;
+        rows.push(row.map((val, idx) => {
+            if (idx === 4 && typeof val === 'string' && val.startsWith('="')) return val;
+            if (idx === 30 && typeof val === 'string' && val.startsWith("'")) {
+                return `"${val.replace(/"/g, '""')}"`;
+            }
+            return escapeCsvField(val);
         }).join(','));
     });
 

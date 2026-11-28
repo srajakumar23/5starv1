@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { canEdit, hasPermission } from '@/lib/permission-service'
 import { LeadStatus } from '@prisma/client'
 import { toLeadStatus } from '@/lib/enum-utils'
-import { getAccruedPayoutLiabilitiesInternal } from '@/app/finance-actions'
+import { getAccruedPayoutLiabilitiesInternal } from '@/lib/finance-liabilities-service'
 
 // --- Helper: Verify Campus Admin Access ---
 async function verifyCampusAccess() {

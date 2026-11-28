@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import cashfree from "@/lib/cashfree";
 import prisma from "@/lib/prisma";
-import { syncUserStats } from "@/app/sync-actions";
+import { syncUserStats } from "@/lib/sync-service";
 
 export async function POST(req: Request) {
     let orderId = "unknown";
@@ -72,51 +72,75 @@ export async function POST(req: Request) {
 
         if (type === "PAYMENT_SUCCESS_WEBHOOK") {
             const payment = data.payment;
+            const existingPayment = await prisma.payment.findUnique({ where: { orderId } });
 
-            // 4. Update Database
+            if (!existingPayment) {
+                return NextResponse.json({ error: "Order not found" }, { status: 404 });
+            }
+
+            if (existingPayment.orderStatus === "PAID" || existingPayment.paymentStatus === "Success") {
+                return NextResponse.json({ status: "OK", alreadyProcessed: true });
+            }
+
+            const paidAmount = Number(payment?.payment_amount ?? existingPayment.orderAmount ?? 0);
+            if (paidAmount < 25) {
+                await prisma.activityLog.create({
+                    data: {
+                        action: 'ERROR',
+                        module: 'WEBHOOK',
+                        targetId: orderId,
+                        description: `Rejected underpaid webhook amount (₹${paidAmount}) for order ${orderId}`
+                    }
+                }).catch(() => { });
+                return NextResponse.json({ error: "Invalid payment amount" }, { status: 400 });
+            }
+
+            // 4. Update Database atomically
             console.log(`Processing Webhook: Success for Order ${orderId}`);
 
-            const updatedPayment = await prisma.payment.update({
-                where: { orderId: orderId },
-                data: {
-                    paymentStatus: "Success",
-                    orderStatus: "PAID",
-                    transactionId: payment.cf_payment_id ? String(payment.cf_payment_id) : undefined,
-                    paymentMethod: payment.payment_group,
-                    bankReference: payment.bank_reference,
-                    paidAt: payment.payment_completion_time ? new Date(payment.payment_completion_time) : new Date(),
-                    gatewayResponse: payment // Store full webhook payment data
-                }
-            });
-
-            // 5. Activate User
-            if (updatedPayment.userId) {
-                const user = await prisma.user.findUnique({
-                    where: { userId: updatedPayment.userId },
-                    select: { role: true, referralCode: true }
-                });
-
-                let referralCode = user?.referralCode;
-                if (!referralCode && user) {
-                    const { generateSmartReferralCode } = await import('@/lib/referral-service');
-                    referralCode = await generateSmartReferralCode(user.role);
-                    console.log(`[WEBHOOK] Generating referral code for upgraded user ${updatedPayment.userId}: ${referralCode}`);
-                }
-
-                await prisma.user.update({
-                    where: { userId: updatedPayment.userId },
+            const updatedPayment = await prisma.$transaction(async (tx) => {
+                const pmt = await tx.payment.update({
+                    where: { orderId: orderId },
                     data: {
-                        status: 'Active',
-                        paymentStatus: 'Success',
-                        referralCode, // Ensure it's set
-                        transactionId: payment.cf_payment_id ? String(payment.cf_payment_id) : undefined
+                        paymentStatus: "Success",
+                        orderStatus: "PAID",
+                        transactionId: payment.cf_payment_id ? String(payment.cf_payment_id) : undefined,
+                        paymentMethod: payment.payment_group,
+                        bankReference: payment.bank_reference,
+                        paidAt: payment.payment_completion_time ? new Date(payment.payment_completion_time) : new Date(),
+                        gatewayResponse: payment
                     }
                 });
 
-                // Centralized Sync: Creates Student record and confirms referrals
-                await syncUserStats(updatedPayment.userId)
-            }
+                if (pmt.userId) {
+                    const user = await tx.user.findUnique({
+                        where: { userId: pmt.userId },
+                        select: { role: true, referralCode: true }
+                    });
 
+                    let referralCode = user?.referralCode;
+                    if (!referralCode && user) {
+                        const { generateSmartReferralCode } = await import('@/lib/referral-service');
+                        referralCode = await generateSmartReferralCode(user.role);
+                    }
+
+                    await tx.user.update({
+                        where: { userId: pmt.userId },
+                        data: {
+                            status: 'Active',
+                            paymentStatus: 'Success',
+                            referralCode,
+                            transactionId: payment.cf_payment_id ? String(payment.cf_payment_id) : undefined
+                        }
+                    });
+                }
+
+                return pmt;
+            });
+
+            if (updatedPayment.userId) {
+                await syncUserStats(updatedPayment.userId);
+            }
 
             await prisma.activityLog.create({
                 data: {
@@ -129,15 +153,18 @@ export async function POST(req: Request) {
 
         } else if (type === "PAYMENT_FAILED_WEBHOOK") {
             console.log(`Processing Webhook: Failure for Order ${orderId}`);
+            const existingPayment = await prisma.payment.findUnique({ where: { orderId } });
 
-            await prisma.payment.update({
-                where: { orderId: orderId },
-                data: {
-                    paymentStatus: "Failed",
-                    orderStatus: "ACTIVE", // Or FAILED, dependent on business logic.
-                    gatewayResponse: data.payment
-                }
-            });
+            if (existingPayment && existingPayment.orderStatus !== "PAID" && existingPayment.paymentStatus !== "Success") {
+                await prisma.payment.update({
+                    where: { orderId: orderId },
+                    data: {
+                        paymentStatus: "Failed",
+                        orderStatus: "ACTIVE",
+                        gatewayResponse: data.payment
+                    }
+                });
+            }
 
             await prisma.activityLog.create({
                 data: {

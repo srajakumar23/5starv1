@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { chatbotService } from '@/lib/chatbot-service'
 import { whatsappService } from '@/lib/whatsapp-service'
+import { safeSecretEquals } from '@/lib/webhook-auth'
 
 /**
  * WhatsApp Webhook Endpoint (MSG91)
@@ -8,11 +9,11 @@ import { whatsappService } from '@/lib/whatsapp-service'
  */
 export async function POST(req: Request) {
     try {
-        // SECURITY: Check for webhook secret to prevent spoofing
+        // SECURITY: Fail-closed webhook secret verification
         const authHeader = req.headers.get('Authorization') || new URL(req.url).searchParams.get('secret')
         const EXPECTED_SECRET = process.env.WHATSAPP_WEBHOOK_SECRET
 
-        if (EXPECTED_SECRET && authHeader !== EXPECTED_SECRET) {
+        if (!safeSecretEquals(authHeader, EXPECTED_SECRET)) {
             console.error('❌ [WhatsApp Webhook] Unauthorized access attempt')
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
         }

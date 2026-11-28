@@ -53,10 +53,6 @@ export function calculateTotalBenefit(
 } {
     const referralCount = currentReferrals.length
     const isFiveStar = user.isFiveStarLastYear || false
-    
-    if (referralCount > 0) {
-        DEBUG_LOGS.push(`[DEBUG] Calculating benefit for role: ${user.role}, referrals: ${referralCount}`);
-    }
 
     // ACTIVATION LAW: Long Term benefits trigger ONLY if 1+ current referral exists
     const isActive = referralCount >= 1 || forceActivateLongTerm
@@ -174,10 +170,6 @@ export function calculateTotalBenefit(
             if (admFee > 0 || donFee > 0) {
                 const admBonus = Math.round(admFee * REWARD_RATES.ADMISSION_PROFIT_SHARE)
                 const donBonus = Math.round(donFee * REWARD_RATES.DONATION_PROFIT_SHARE)
-                
-                if (referralCount > 0) {
-                    DEBUG_LOGS.push(`[DEBUG] Ref ID: ${ref.id}, AdmFee: ${admFee}, AdmBonus: ${admBonus}`);
-                }
 
                 admissionShare += admBonus
                 donationShare += donBonus

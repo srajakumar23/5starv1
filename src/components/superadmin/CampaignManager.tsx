@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { getCampaigns, createCampaign, updateCampaign, deleteCampaign, getAudienceCount, exportCampaignData, runCampaign, resetStuckCampaign, syncCampaignMetrics, sendIndividualWhatsApp, getWhatsAppTemplates, sendTestCampaignMessage } from '@/app/campaign-actions'
-import { dispatchCampaignBatch } from '@/app/campaign-dispatcher'
 import { getCampuses } from '@/app/campus-actions'
 import { getAllPrograms } from '@/app/program-actions'
 import { toast } from 'sonner'

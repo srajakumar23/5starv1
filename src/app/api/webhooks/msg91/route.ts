@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
+import { safeSecretEquals } from '@/lib/webhook-auth'
 
 /**
  * MSG91 Webhook Handler
@@ -12,11 +13,11 @@ import { revalidatePath } from 'next/cache'
 
 export async function POST(request: Request) {
     try {
-        // SECURITY: Check for webhook secret/authkey to prevent spoofing
+        // SECURITY: Fail-closed webhook secret verification
         const authKey = request.headers.get('authkey') || new URL(request.url).searchParams.get('secret')
         const EXPECTED_SECRET = process.env.MSG91_WEBHOOK_SECRET
 
-        if (EXPECTED_SECRET && authKey !== EXPECTED_SECRET) {
+        if (!safeSecretEquals(authKey, EXPECTED_SECRET)) {
             console.error('❌ [MSG91 Webhook] Unauthorized access attempt')
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
         }
@@ -29,6 +30,8 @@ export async function POST(request: Request) {
         }
 
         const events = Array.isArray(body) ? body : [body]
+        let totalRetriesUsed = 0
+        const MAX_TOTAL_RETRIES = 3
 
         for (const event of events) {
             // MSG91 sends varied field names - check ALL possibilities (case-insensitive)
@@ -108,8 +111,9 @@ export async function POST(request: Request) {
                 }
                 
                 if (log) break;
-                // Exponential backoff or simple delay
-                await new Promise(r => setTimeout(r, 1200));
+                if (totalRetriesUsed >= MAX_TOTAL_RETRIES) break;
+                totalRetriesUsed++;
+                await new Promise(r => setTimeout(r, 800));
             }
 
             if (log) {
@@ -201,37 +205,43 @@ export async function POST(request: Request) {
                 if (normalizedStatus === 'READ') updateData.whatsappRead = { increment: 1 }
                 if (normalizedStatus === 'FAILED' || normalizedStatus === 'REJECTED') updateData.failedCount = { increment: 1 }
 
-                await prisma.campaignLog.update({
-                    where: { id: campaignLog.id },
-                    data: updateData
-                })
+                if (Object.keys(updateData).length > 0) {
+                    await prisma.campaignLog.update({
+                        where: { id: campaignLog.id },
+                        data: updateData
+                    })
+                }
 
-                // ✅ EXPERT FINAL SYNC: Update the Individual Activity Log (WhatsAppLog)
-                // This ensures the dashboard UI shows "DELIVERED" checkmarks for this specific student.
+                // ✅ EXPERT FINAL SYNC: Update the Individual Activity Log (WhatsAppLog) only if not already updated above
                 if (mobile) {
                     // Normalize mobile for lookup
                     const cleanMobile = mobile.replace(/\D/g, '').slice(-10)
-                    
-                    // Match by either exact refId OR mobile within local time window
-                    await prisma.whatsAppLog.updateMany({
-                        where: {
-                            mobile: { contains: cleanMobile },
-                            OR: [
-                                { refId: actualRefStr },
-                                { refId: { startsWith: actualRefStr.split('_').slice(0, 3).join('_') } }, // Match parent batch
-                                { createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) } } // Within last 12h
-                            ]
-                        },
-                        data: {
-                            status: normalizedStatus,
-                            errorMessage: error ? error.toString() : undefined,
-                            metadata: {
-                                ...(normalizedStatus === 'DELIVERED' ? { deliveredAt: new Date().toISOString() } : {}),
-                                ...(normalizedStatus === 'READ' ? { readAt: new Date().toISOString() } : {}),
-                                providerResponse: log
-                            } as any
+                    const batchPrefix = actualRefStr.startsWith('camp_')
+                        ? actualRefStr.split('_').slice(0, 3).join('_')
+                        : null
+
+                    if (!log?.id && actualRefStr) {
+                        const refMatches: any[] = [{ refId: actualRefStr }]
+                        if (batchPrefix) {
+                            refMatches.push({ refId: { startsWith: batchPrefix } })
                         }
-                    }).catch((e: any) => console.error('[MSG91 Webhook] Individual WhatsAppLog update error:', e.message))
+
+                        await prisma.whatsAppLog.updateMany({
+                            where: {
+                                mobile: { contains: cleanMobile },
+                                OR: refMatches
+                            },
+                            data: {
+                                status: normalizedStatus,
+                                errorMessage: error ? error.toString() : undefined,
+                                metadata: {
+                                    ...(normalizedStatus === 'DELIVERED' ? { deliveredAt: new Date().toISOString() } : {}),
+                                    ...(normalizedStatus === 'READ' ? { readAt: new Date().toISOString() } : {}),
+                                    lastWebhookEvent: event
+                                } as any
+                            }
+                        }).catch((e: any) => console.error('[MSG91 Webhook] Individual WhatsAppLog update error:', e.message))
+                    }
 
                     await (prisma as any).campaignRecipient.updateMany({
                         where: {

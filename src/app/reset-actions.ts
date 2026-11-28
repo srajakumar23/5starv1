@@ -6,7 +6,7 @@ import { logAction } from "@/lib/audit-logger"
 
 /**
  * PRODUCTION RESET TOOL
- * Clears all transactional data (Users, Students, Referrals)
+ * Clears all transactional data (Users, Students, Referrals) inside an atomic transaction.
  * Preserves: Admins, Campuses, Settings
  */
 export async function resetDatabase(confirmation: string) {
@@ -23,31 +23,29 @@ export async function resetDatabase(confirmation: string) {
     }
 
     try {
-        // 3. Execution (Order matters for foreign keys)
+        // 3. Atomic Execution (Strict reverse foreign-key dependency order)
+        const counts = await prisma.$transaction(async (tx) => {
+            await tx.otpVerification.deleteMany({})
+            await tx.notification.deleteMany({})
+            await tx.deviceToken.deleteMany({})
+            await tx.ticketMessage.deleteMany({})
+            await tx.supportTicket.deleteMany({})
+            await tx.programLead.deleteMany({})
+            await tx.payment.deleteMany({})
 
-        // Delete OTPs
-        const otps = await prisma.otpVerification.deleteMany({})
+            const settlements = await tx.settlement.deleteMany({})
+            // Student.referralLeadId references ReferralLead.leadId -> delete Students BEFORE ReferralLeads
+            const students = await tx.student.deleteMany({})
+            const leads = await tx.referralLead.deleteMany({})
+            const users = await tx.user.deleteMany({})
 
-        // Delete Notifications
-        const notifications = await prisma.notification.deleteMany({})
-
-        // Delete Ticket Messages & Tickets
-        const msgs = await prisma.ticketMessage.deleteMany({})
-        const tickets = await prisma.supportTicket.deleteMany({})
-
-        // Delete Settlements
-        const settlements = await prisma.settlement.deleteMany({})
-
-        // Delete Referral Leads (Links Parents -> Students)
-        const leads = await prisma.referralLead.deleteMany({})
-
-        // Delete Students (Links Parents -> Students)
-        const students = await prisma.student.deleteMany({})
-
-        // Delete Users (Ambassadors/Parents)
-        // We must NOT delete Admins, but Admins are in 'Admin' table.
-        // 'User' table contains only Ambassadors/Parents.
-        const users = await prisma.user.deleteMany({})
+            return {
+                users: users.count,
+                students: students.count,
+                leads: leads.count,
+                settlements: settlements.count
+            }
+        }, { timeout: 60000 })
 
         // 4. Audit Log
         await logAction(
@@ -56,17 +54,12 @@ export async function resetDatabase(confirmation: string) {
             `DATABASE RESET performed by ${'adminName' in user ? user.adminName : user.fullName}`,
             'ALL',
             null,
-            { deleted: { users: users.count, students: students.count, leads: leads.count } }
+            { deleted: { users: counts.users, students: counts.students, leads: counts.leads } }
         )
 
         return {
             success: true,
-            counts: {
-                users: users.count,
-                students: students.count,
-                leads: leads.count,
-                settlements: settlements.count
-            }
+            counts
         }
 
     } catch (error: any) {

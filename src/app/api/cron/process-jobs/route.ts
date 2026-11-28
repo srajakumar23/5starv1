@@ -1,13 +1,14 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import prisma from '@/lib/prisma'
 import { dispatchCampaignBatch } from '@/app/campaign-dispatcher'
+import { verifyBearerSecret } from '@/lib/webhook-auth'
+import { executeReengagementLogic, executeCampusEnforcementLogic } from '@/lib/background-jobs-service'
 
 export const dynamic = 'force-dynamic' // Ensure this route is never cached
 export const maxDuration = 60 // Allow longer execution time if possible (Vercel specific)
 
 export async function GET(request: Request) {
-    const authHeader = request.headers.get('authorization')
-    if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    if (!verifyBearerSecret(request, process.env.CRON_SECRET)) {
         return new NextResponse('Unauthorized', { status: 401 })
     }
 
@@ -18,8 +19,20 @@ export async function GET(request: Request) {
     // For simplicity/low-concurrency, we'll just findFirst then update.
 
     try {
+        // 0. Recover any stale job stuck in PROCESSING for > 10 minutes
+        const staleThreshold = new Date(Date.now() - 10 * 60 * 1000)
+        await prisma.job.updateMany({
+            where: {
+                status: 'PROCESSING',
+                updatedAt: { lt: staleThreshold }
+            },
+            data: {
+                status: 'PENDING',
+                error: 'Recovered from stale PROCESSING lock'
+            }
+        }).catch(() => null)
+
         // 1. Fetch and Lock the oldest PENDING job atomically
-        // Using update with a where filter ensures only one worker picks up the job
         const jobToProcess = await prisma.job.findFirst({
             where: { status: 'PENDING' },
             orderBy: { createdAt: 'asc' },
@@ -30,14 +43,23 @@ export async function GET(request: Request) {
             return NextResponse.json({ success: true, message: 'No jobs pending' })
         }
 
-        // Atomic update to mark as PROCESSING
-        const job = await prisma.job.update({
+        // Atomic conditional claim using updateMany so concurrent workers fail gracefully instead of throwing P2025
+        const lockResult = await prisma.job.updateMany({
             where: {
                 id: jobToProcess.id,
-                status: 'PENDING' // Safety check: still pending?
+                status: 'PENDING'
             },
             data: { status: 'PROCESSING' }
         })
+
+        if (lockResult.count === 0) {
+            return NextResponse.json({ success: true, message: 'Job already claimed by another worker' })
+        }
+
+        const job = await prisma.job.findUnique({ where: { id: jobToProcess.id } })
+        if (!job) {
+            return NextResponse.json({ success: true, message: 'Job not found' })
+        }
 
         console.log(`[JobProcessor] Locked Job #${job.id} Type: ${job.type} at ${new Date().toISOString()}`)
 
@@ -66,7 +88,6 @@ export async function GET(request: Request) {
                 })
             }
         } else if (job.type === 'SYSTEM_REENGAGEMENT') {
-            const { executeReengagementLogic } = await import('@/app/engagement-actions')
             try {
                 const count = await executeReengagementLogic()
                 await prisma.job.update({
@@ -80,7 +101,6 @@ export async function GET(request: Request) {
                 })
             }
         } else if (job.type === 'SYSTEM_ENFORCEMENT') {
-            const { executeCampusEnforcementLogic } = await import('@/app/campus-enforcement-actions')
             try {
                 const result = await executeCampusEnforcementLogic()
                 await prisma.job.update({
@@ -119,20 +139,33 @@ export async function GET(request: Request) {
                 baseUrl = 'http://localhost:3000'
             }
 
-            // Trigger next run (Fire-and-forget)
-            fetch(`${baseUrl}/api/cron/process-jobs`, {
-                method: 'GET',
-                cache: 'no-store',
-                headers: process.env.CRON_SECRET
-                    ? { authorization: `Bearer ${process.env.CRON_SECRET}` }
-                    : undefined
-            }).catch(err => console.error('[JobProcessor] Failed to trigger next job', err))
+            // Schedule next batch via Next.js after() so serverless execution completes dispatch reliably
+            const targetUrl = `${baseUrl}/api/cron/process-jobs`
+            const cronSecret = process.env.CRON_SECRET
+            after(async () => {
+                const controller = new AbortController()
+                const timeoutId = setTimeout(() => controller.abort(), 10000)
+                try {
+                    await fetch(targetUrl, {
+                        method: 'GET',
+                        cache: 'no-store',
+                        signal: controller.signal,
+                        headers: cronSecret
+                            ? { authorization: `Bearer ${cronSecret}` }
+                            : undefined
+                    })
+                } catch (err) {
+                    console.error('[JobProcessor] Failed to trigger next job', err)
+                } finally {
+                    clearTimeout(timeoutId)
+                }
+            })
         }
 
         return NextResponse.json({ success: true, jobId: job.id, nextPending: !!nextJob })
 
     } catch (error: any) {
         console.error('[JobProcessor] Error:', error)
-        return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+        return NextResponse.json({ success: false, error: 'Job processing failed' }, { status: 500 })
     }
 }

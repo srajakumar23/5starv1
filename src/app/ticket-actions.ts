@@ -321,6 +321,11 @@ export async function getTicketMessages(ticketId: number) {
 
 // Check and update escalations (TRANSACTIONAL SAFETY)
 export async function checkEscalations() {
+    const user = await getCurrentUser()
+    if (!user || (user.role !== 'Super Admin' && !user.role.includes('Admin') && !(await hasPermission('supportDesk')))) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
     try {
         const now = new Date()
         const result = await prisma.$transaction(async (tx) => {
