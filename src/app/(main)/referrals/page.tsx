@@ -4,16 +4,19 @@ import { getBenefitSlabs } from '@/app/benefit-actions'
 import prisma from '@/lib/prisma'
 import { ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { ReferralsList } from './referrals-list'
 
 export default async function ReferralsPage() {
-    const [referrals, user, slabsResult, activeYears, settlements] = await Promise.all([
+    const user = await getCurrentUser()
+    if (!user) redirect('/')
+
+    const [referrals, slabsResult, activeYears, settlements] = await Promise.all([
         getMyReferrals(),
-        getCurrentUser(),
         getBenefitSlabs(),
         prisma.academicYear.findMany({ where: { isActive: true } }),
         prisma.settlement.findMany({
-            where: { userId: (await getCurrentUser())?.userId },
+            where: { userId: Number((user as any).userId) },
             include: { referralLead: true }
         })
     ])
@@ -21,13 +24,15 @@ export default async function ReferralsPage() {
     // Prepare Campus Fee Map for accurate yield calculations (mirroring DashboardClient)
     const activeYearStrings = activeYears.map(y => y.year)
     const campusIds = Array.from(new Set(referrals.map((r: any) => r.campusId).filter(Boolean))) as number[]
-    const grade1Fees = await prisma.gradeFee.findMany({
-        where: {
-            campusId: { in: campusIds },
-            grade: { in: ['Grade 1', 'Grade - 1', '1', 'I'] },
-            academicYear: { in: activeYearStrings }
-        }
-    })
+    const grade1Fees = campusIds.length > 0 && activeYearStrings.length > 0
+        ? await prisma.gradeFee.findMany({
+            where: {
+                campusId: { in: campusIds },
+                grade: { in: ['Grade 1', 'Grade - 1', '1', 'I'] },
+                academicYear: { in: activeYearStrings }
+            }
+        })
+        : []
     const campusFeeMap: Record<string, Record<number, { otp: number, wotp: number }>> = {}
     activeYearStrings.forEach(y => { campusFeeMap[y] = {} })
     grade1Fees.forEach(gf => {

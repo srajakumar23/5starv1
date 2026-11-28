@@ -40,6 +40,9 @@ interface ActionHomeBlueUnifiedProps {
     unreadCount?: number
     slabs?: { referralCount: number; yearFeeBenefitPercent: number; tierName?: string | null }[]
     leadPipelineCounts?: { submitted: number; inProgress: number; confirmed: number; rejected: number; total: number }
+    hasBankDetails?: boolean
+    benefitMode?: string
+    lastPaidDate?: string | null
 }
 
 // Animation Variants
@@ -104,7 +107,10 @@ export function ActionHomeBlueUnified({
     notifications = [],
     unreadCount = 0,
     slabs,
-    leadPipelineCounts
+    leadPipelineCounts,
+    hasBankDetails,
+    benefitMode,
+    lastPaidDate
 }: ActionHomeBlueUnifiedProps) {
     const firstName = user.fullName.split(' ')[0]
 
@@ -154,6 +160,8 @@ export function ActionHomeBlueUnified({
     }, [displayCount, unitsToNext, user.isFiveStarMember])
 
     const [longTermExpanded, setLongTermExpanded] = useState(false)
+    const [circularsExpanded, setCircularsExpanded] = useState(false)
+    const [previewTierIndex, setPreviewTierIndex] = useState<number | null>(null)
     const [copied, setCopied] = useState(false)
     const [mounted, setMounted] = useState(false)
 
@@ -161,10 +169,30 @@ export function ActionHomeBlueUnified({
         setMounted(true)
     }, [])
 
+    const copyToClipboard = async (text: string, successMessage: string) => {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text)
+            } else {
+                throw new Error('Clipboard API unavailable')
+            }
+        } catch {
+            const ta = document.createElement('textarea')
+            ta.value = text
+            ta.setAttribute('readonly', '')
+            ta.style.position = 'fixed'
+            ta.style.opacity = '0'
+            document.body.appendChild(ta)
+            ta.select()
+            document.execCommand('copy')
+            document.body.removeChild(ta)
+        }
+        toast.success(successMessage)
+    }
+
     const handleCopy = () => {
-        navigator.clipboard.writeText(referralLink)
+        copyToClipboard(referralLink, 'Referral link copied!')
         setCopied(true)
-        toast.success('Referral link copied!')
         setTimeout(() => setCopied(false), 2000)
     }
 
@@ -289,6 +317,32 @@ export function ActionHomeBlueUnified({
                                         </div>
                                     )}
                                     <div className="hidden md:block w-px h-12 bg-white/10" />
+                                    {hasBankDetails !== undefined && (
+                                        <>
+                                            <div className="text-left">
+                                                <p className="text-[10px] uppercase tracking-[0.25em] text-blue-200/70 font-bold mb-2">Payout Readiness</p>
+                                                <Link
+                                                    href="/profile"
+                                                    className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest border transition-all ${
+                                                        hasBankDetails
+                                                            ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/20'
+                                                            : 'bg-amber-500/15 border-amber-400/40 text-amber-300 hover:bg-amber-500/25'
+                                                    }`}
+                                                >
+                                                    {hasBankDetails ? (
+                                                        <>
+                                                            <CheckCircle size={12} /> Bank Ready
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            Add Bank A/C <ChevronRight size={12} />
+                                                        </>
+                                                    )}
+                                                </Link>
+                                            </div>
+                                            <div className="hidden md:block w-px h-12 bg-white/10" />
+                                        </>
+                                    )}
                                     <div className="text-left w-full md:w-auto overflow-hidden">
                                         <p className="text-[10px] uppercase tracking-[0.25em] text-blue-200/70 font-bold mb-2">Campus</p>
                                         <p className="text-white font-black text-xl md:text-2xl tracking-tighter uppercase leading-none break-words">{user.assignedCampus || 'Corporate'}</p>
@@ -297,10 +351,7 @@ export function ActionHomeBlueUnified({
                                     <div className="text-left relative z-20">
                                         <p className="text-[10px] uppercase tracking-[0.25em] text-blue-200/70 font-bold mb-3 pl-1">Partner ID</p>
                                         <button
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(user.referralCode)
-                                                toast.success('Partner ID copied to clipboard')
-                                            }}
+                                            onClick={() => copyToClipboard(user.referralCode, 'Partner ID copied to clipboard')}
                                             className="group/id relative flex items-center gap-4 pl-5 pr-4 py-3 bg-gradient-to-r from-blue-950/50 to-indigo-950/50 rounded-2xl border border-blue-400/20 hover:border-blue-400/40 hover:bg-blue-900/40 transition-all duration-300 shadow-[0_8px_20px_rgba(0,0,0,0.3)] backdrop-blur-md overflow-hidden"
                                         >
                                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-400/5 to-transparent translate-x-[-100%] group-hover/id:translate-x-[100%] transition-transform duration-1000" />
@@ -379,19 +430,34 @@ export function ActionHomeBlueUnified({
                             {/* Net Rewards Card - PLATINUM: Vibrant Indigo Theme */}
                             <GlassCard className="flex-1 !bg-gradient-to-br !from-indigo-950 !via-indigo-900/90 !to-blue-900 backdrop-blur-3xl border border-indigo-400/40 shadow-2xl group/indigo hover:border-indigo-400/60 transition-all duration-700 flex flex-col p-0 overflow-hidden">
                                 <div className="relative z-10 flex flex-col justify-between flex-1 p-6 md:p-10">
-                                    <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-5 mb-8 md:mb-10">
-                                        <div className="w-14 h-14 bg-white/10 rounded-[20px] flex items-center justify-center backdrop-blur-2xl border border-white/20 group-hover/indigo:scale-110 group-hover/indigo:rotate-3 transition-transform shadow-2xl relative overflow-hidden">
-                                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-400/20 to-transparent" />
-                                            <Wallet size={24} className="text-white relative z-10 drop-shadow-lg" />
+                                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8 md:mb-10">
+                                        <div className="flex items-center gap-4 md:gap-5">
+                                            <div className="w-14 h-14 bg-white/10 rounded-[20px] flex items-center justify-center backdrop-blur-2xl border border-white/20 group-hover/indigo:scale-110 group-hover/indigo:rotate-3 transition-transform shadow-2xl relative overflow-hidden">
+                                                <div className="absolute inset-0 bg-gradient-to-br from-indigo-400/20 to-transparent" />
+                                                <Wallet size={24} className="text-white relative z-10 drop-shadow-lg" />
+                                            </div>
+                                            <div>
+                                                <span className="text-[11px] font-black text-indigo-300 uppercase tracking-[0.3em] block mb-1">
+                                                    Net Rewards
+                                                </span>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em]">
+                                                        {benefitLabel}
+                                                    </span>
+                                                    {benefitMode && (
+                                                        <span className="px-2 py-0.5 rounded-full bg-white/10 border border-white/15 text-[9px] font-black text-indigo-200 uppercase tracking-wider">
+                                                            {benefitMode}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <span className="text-[11px] font-black text-indigo-300 uppercase tracking-[0.3em] block mb-1">
-                                                Net Rewards
-                                            </span>
-                                            <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">
-                                                {benefitLabel}
-                                            </span>
-                                        </div>
+                                        <Link
+                                            href="/earnings"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-[10px] font-black text-white uppercase tracking-widest transition-all"
+                                        >
+                                            View Statement <ChevronRight size={13} />
+                                        </Link>
                                     </div>
 
                                     <div className="space-y-4">
@@ -405,11 +471,16 @@ export function ActionHomeBlueUnified({
                                             <div className="text-[12px] font-black text-white bg-indigo-500/40 px-3 py-1 rounded-xl border border-white/20 backdrop-blur-md mb-2 shadow-xl">{benefitPercent}%</div>
                                         </div>
                                         {overrideSettledAmount && overrideSettledAmount > 0 ? (
-                                            <div className="flex items-center gap-3 mt-2">
-                                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-300 uppercase tracking-widest">
+                                            <div className="flex flex-wrap items-center gap-3 mt-2">
+                                                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-300 uppercase tracking-widest">
                                                     <CheckCircle size={10} />
                                                     Paid: ₹{overrideSettledAmount.toLocaleString('en-IN')}
                                                 </div>
+                                                {lastPaidDate && (
+                                                    <div className="text-[10px] font-bold text-emerald-200/70 uppercase tracking-wider">
+                                                        Last Received: {new Date(lastPaidDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                    </div>
+                                                )}
                                                 <div className="text-[10px] font-black text-white/30 uppercase tracking-widest">
                                                     Total: ₹{(overrideGrossAmount || currentBenefitAmount).toLocaleString('en-IN')}
                                                 </div>
@@ -516,6 +587,55 @@ export function ActionHomeBlueUnified({
                         </PageItem>
                     </motion.div>
 
+                    {/* 3-Step Quick Start Card (Shown Only When 0 Referrals Submitted Yet) */}
+                    {displayCount === 0 && recentReferrals.length === 0 && (
+                        <motion.div variants={itemVariants}>
+                            <PageItem className="bg-slate-900/70 backdrop-blur-xl rounded-[28px] p-5 md:p-6 border border-cyan-400/30 shadow-xl relative z-10">
+                                <div className="flex items-center justify-between gap-3 mb-4">
+                                    <div>
+                                        <h3 className="text-sm font-black text-white uppercase tracking-wider">Quick Start Guide</h3>
+                                        <p className="text-[10px] text-cyan-200/60 font-bold uppercase tracking-widest mt-0.5">3 steps to unlock your first benefit</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-400/25 flex items-center gap-3">
+                                        <CheckCircle size={16} className="text-emerald-400 shrink-0" />
+                                        <div>
+                                            <p className="text-[10px] font-black text-emerald-300 uppercase tracking-wider">1. Account</p>
+                                            <p className="text-xs font-bold text-white">{user.status === 'Active' ? 'Activated' : user.status}</p>
+                                        </div>
+                                    </div>
+                                    <Link
+                                        href="/profile"
+                                        className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all ${
+                                            hasBankDetails
+                                                ? 'bg-emerald-500/10 border-emerald-400/25'
+                                                : 'bg-amber-500/10 border-amber-400/30 hover:bg-amber-500/20'
+                                        }`}
+                                    >
+                                        <CheckCircle size={16} className={hasBankDetails ? 'text-emerald-400 shrink-0' : 'text-amber-400 shrink-0'} />
+                                        <div>
+                                            <p className={`text-[10px] font-black uppercase tracking-wider ${hasBankDetails ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                                2. Bank Details
+                                            </p>
+                                            <p className="text-xs font-bold text-white">{hasBankDetails ? 'Ready ✓' : 'Add Bank A/C →'}</p>
+                                        </div>
+                                    </Link>
+                                    <Link
+                                        href="/refer"
+                                        className="p-3.5 rounded-2xl bg-blue-500/15 border border-blue-400/30 hover:bg-blue-500/25 flex items-center gap-3 transition-all"
+                                    >
+                                        <UserPlus size={16} className="text-cyan-300 shrink-0" />
+                                        <div>
+                                            <p className="text-[10px] font-black text-cyan-300 uppercase tracking-wider">3. First Referral</p>
+                                            <p className="text-xs font-bold text-white">Refer a Family →</p>
+                                        </div>
+                                    </Link>
+                                </div>
+                            </PageItem>
+                        </motion.div>
+                    )}
+
                     {/* BENEFIT STRUCTURE - Royal Glass Theme (Blue-Slate Variant) */}
                     <motion.div variants={itemVariants}>
                         <PageItem className="bg-gradient-to-br from-blue-700/60 to-slate-900/60 backdrop-blur-xl rounded-[32px] md:rounded-[40px] p-6 md:p-8 border border-blue-400/40 shadow-2xl relative z-10 mt-6 backdrop-brightness-125">
@@ -580,7 +700,12 @@ export function ActionHomeBlueUnified({
                                         }
 
                                         return (
-                                            <div key={tier.count} className={`relative py-3 md:py-6 px-1 md:px-2 rounded-2xl text-center transition-all duration-500 ${getCardClasses()}`}>
+                                            <button
+                                                type="button"
+                                                key={tier.count}
+                                                onClick={() => setPreviewTierIndex(previewTierIndex === index ? null : index)}
+                                                className={`relative py-3 md:py-6 px-1 md:px-2 rounded-2xl text-center transition-all duration-500 cursor-pointer ${getCardClasses()} ${previewTierIndex === index ? 'ring-2 ring-cyan-300' : ''}`}
+                                            >
                                                 <div className={`text-[9px] font-black uppercase tracking-[0.15em] mb-1.5 ${index === 4 ? 'text-black/70' : 'text-white/40'}`}>
                                                     {tier.count} {tier.count > 1 ? 'Units' : 'Unit'}
                                                 </div>
@@ -591,10 +716,23 @@ export function ActionHomeBlueUnified({
                                                 {isCurrentTier && (
                                                     <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full animate-pulse shadow-[0_0_12px_white]" />
                                                 )}
-                                            </div>
+                                            </button>
                                         )
                                     })}
                                 </div>
+                                {previewTierIndex !== null && activeTiers[previewTierIndex] && (
+                                    <div className="mt-3 px-3.5 py-2 rounded-xl bg-white/10 border border-white/15 flex items-center justify-between gap-2 text-[11px] font-bold text-blue-100">
+                                        <span>
+                                            Tier {activeTiers[previewTierIndex].count}: At{' '}
+                                            <strong className="text-white">{activeTiers[previewTierIndex].count}</strong> confirmed{' '}
+                                            {activeTiers[previewTierIndex].count === 1 ? 'admission' : 'admissions'}, you unlock{' '}
+                                            <strong className="text-amber-300">{activeTiers[previewTierIndex].percent}%</strong> annual fee benefit.
+                                        </span>
+                                        <span className="text-[10px] uppercase tracking-wider text-cyan-300 shrink-0">
+                                            {displayCount >= activeTiers[previewTierIndex].count ? 'Unlocked ✓' : 'Target'}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Long Term Benefits */}
@@ -669,11 +807,11 @@ export function ActionHomeBlueUnified({
                     <motion.div variants={itemVariants} className="flex flex-col gap-6">
                         {/* NOTIFICATION CENTER - TEAL THEME - EXPANDABLE */}
                         <PageItem className="relative z-10 group/notify mb-6">
-                            <GlassCard className={`!bg-gradient-to-br !from-teal-900/40 !via-cyan-900/50 !to-slate-900/60 border-teal-500/30 shadow-[0_20px_60px_rgba(20,184,166,0.2)] hover:border-teal-400/50 transition-all overflow-hidden ${longTermExpanded ? 'ring-2 ring-teal-500/20' : ''}`}>
+                            <GlassCard className={`!bg-gradient-to-br !from-teal-900/40 !via-cyan-900/50 !to-slate-900/60 border-teal-500/30 shadow-[0_20px_60px_rgba(20,184,166,0.2)] hover:border-teal-400/50 transition-all overflow-hidden ${circularsExpanded ? 'ring-2 ring-teal-500/20' : ''}`}>
                                 <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/10 blur-[80px] -mr-20 -mt-20 rounded-full group-hover/notify:bg-teal-500/20 transition-colors pointer-events-none" />
 
                                 <button
-                                    onClick={() => setLongTermExpanded(!longTermExpanded)}
+                                    onClick={() => setCircularsExpanded(!circularsExpanded)}
                                     className="w-full text-left relative z-10 outline-none"
                                 >
                                     <div className="flex items-center justify-between p-6">
@@ -700,13 +838,13 @@ export function ActionHomeBlueUnified({
                                                 </p>
                                             </div>
                                         </div>
-                                        <div className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 transition-all duration-500 ${longTermExpanded ? 'rotate-180 bg-teal-500 text-black border-teal-400' : 'group-hover/notify:bg-white/10'}`}>
+                                        <div className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 transition-all duration-500 ${circularsExpanded ? 'rotate-180 bg-teal-500 text-black border-teal-400' : 'group-hover/notify:bg-white/10'}`}>
                                             <ChevronDown size={16} />
                                         </div>
                                     </div>
 
-                                    {/* Preview (Collapsed State) - Show latest 1 item marquee-like or generic text */}
-                                    {!longTermExpanded && (
+                                    {/* Preview (Collapsed State) */}
+                                    {!circularsExpanded && (
                                         <div className="px-6 pb-6 pt-0">
                                             <div className="p-3 rounded-xl bg-black/20 border border-teal-500/10 flex items-center gap-3">
                                                 <div className="w-1 h-8 bg-teal-500/50 rounded-full flex-shrink-0" />
@@ -720,7 +858,7 @@ export function ActionHomeBlueUnified({
 
                                 {/* Expanded Content */}
                                 <AnimatePresence>
-                                    {longTermExpanded && (
+                                    {circularsExpanded && (
                                         <motion.div
                                             initial={{ height: 0, opacity: 0 }}
                                             animate={{ height: 'auto', opacity: 1 }}
@@ -735,7 +873,7 @@ export function ActionHomeBlueUnified({
                                                             <Bell size={20} className="text-slate-500" />
                                                         </div>
                                                         <p className="text-white font-bold mb-1">No New Circulars</p>
-                                                        <p className="text-xs text-slate-500">You're all caught up!</p>
+                                                        <p className="text-xs text-slate-500">You&apos;re all caught up!</p>
                                                     </div>
                                                 ) : (
                                                     notifications.map((notif: any) => (
@@ -752,7 +890,7 @@ export function ActionHomeBlueUnified({
                                                                 </span>
                                                                 <span className="text-[10px] text-slate-500 font-mono">
                                                                     <Clock size={10} className="inline mr-1" />
-                                                                    {new Date(notif.createdAt).toLocaleDateString()}
+                                                                    {new Date(notif.createdAt).toLocaleDateString('en-GB')}
                                                                 </span>
                                                             </div>
                                                             <h4 className="text-white font-bold text-sm mb-1 group-hover/item:text-teal-300 transition-colors pr-4">{notif.title}</h4>
@@ -778,8 +916,7 @@ export function ActionHomeBlueUnified({
                                                                         if (navigator.share) {
                                                                             navigator.share(shareData).catch(console.error)
                                                                         } else {
-                                                                            navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}\n${shareData.url}`)
-                                                                            toast.success('Message copied to clipboard')
+                                                                            copyToClipboard(`${shareData.title}\n${shareData.text}\n${shareData.url}`, 'Message copied to clipboard')
                                                                         }
                                                                     }}
                                                                     className="p-1.5 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 transition-colors"
@@ -818,7 +955,7 @@ export function ActionHomeBlueUnified({
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4 relative z-10">
-                                        <div className="p-4 rounded-[24px] bg-rose-500/5 border border-rose-500/10 hover:bg-rose-500/10 transition-all group/stat1 relative overflow-hidden">
+                                        <Link href="/referrals" className="p-4 rounded-[24px] bg-rose-500/5 border border-rose-500/10 hover:bg-rose-500/10 transition-all group/stat1 relative overflow-hidden block">
                                             {/* Micro-Sparkline: Pending */}
                                             <svg className="absolute top-1/2 right-2 w-16 h-8 -translate-y-1/2 opacity-20 group-hover/stat1:opacity-40 transition-opacity" viewBox="0 0 100 50">
                                                 <path d="M0 40 Q 25 35, 50 20 T 100 10" fill="none" stroke="currentColor" strokeWidth="4" className="text-rose-400" />
@@ -828,8 +965,8 @@ export function ActionHomeBlueUnified({
                                                 <span className="text-4xl tracking-tighter tabular-nums leading-none group-hover/stat1:scale-110 transition-transform">{totalLeadsCount || 0}</span>
                                                 <span className="text-[10px] text-rose-400 font-bold uppercase mb-1.5 opacity-60">Leads</span>
                                             </div>
-                                        </div>
-                                        <div className="p-4 rounded-[24px] bg-indigo-500/5 border border-indigo-500/10 hover:bg-indigo-500/10 transition-all group/stat2 relative overflow-hidden">
+                                        </Link>
+                                        <Link href="/referrals" className="p-4 rounded-[24px] bg-indigo-500/5 border border-indigo-500/10 hover:bg-indigo-500/10 transition-all group/stat2 relative overflow-hidden block">
                                             {/* Micro-Sparkline: Confirmed */}
                                             <svg className="absolute top-1/2 right-2 w-16 h-8 -translate-y-1/2 opacity-20 group-hover/stat2:opacity-40 transition-opacity" viewBox="0 0 100 50">
                                                 <path d="M0 40 L 20 35 L 40 38 L 60 20 L 80 25 L 100 5" fill="none" stroke="currentColor" strokeWidth="4" className="text-indigo-400" />
@@ -839,150 +976,12 @@ export function ActionHomeBlueUnified({
                                                 <span className="text-4xl tracking-tighter tabular-nums leading-none group-hover/stat2:scale-110 transition-transform">{displayCount}</span>
                                                 <span className="text-[10px] text-indigo-400 font-bold uppercase mb-1.5 opacity-60">Units</span>
                                             </div>
-                                        </div>
+                                        </Link>
                                     </div>
                                     <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-purple-600/10 blur-[60px] rounded-full group-hover/ruby:bg-purple-600/20 transition-all" />
                                 </GlassCard>
                             </PageItem>
                         )}
-
-                        {/* DUPLICATE REMOVED */}{false && (
-                            <PageItem className="relative z-10 group/notify my-6">
-                                <GlassCard className={`!bg-gradient-to-br !from-teal-900/40 !via-cyan-900/50 !to-slate-900/60 border-teal-500/30 shadow-[0_20px_60px_rgba(20,184,166,0.2)] hover:border-teal-400/50 transition-all overflow-hidden ${longTermExpanded ? 'ring-2 ring-teal-500/20' : ''}`}>
-                                    <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/10 blur-[80px] -mr-20 -mt-20 rounded-full group-hover/notify:bg-teal-500/20 transition-colors pointer-events-none" />
-
-                                    <button
-                                        onClick={() => setLongTermExpanded(!longTermExpanded)}
-                                        className="w-full text-left relative z-10 outline-none"
-                                    >
-                                        <div className="flex items-center justify-between p-6">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center relative overflow-hidden group-hover/notify:scale-110 transition-transform duration-500">
-                                                    <div className="absolute inset-0 bg-gradient-to-br from-teal-400/20 to-transparent" />
-                                                    <div className="relative z-10">
-                                                        <span className="text-xl">📢</span>
-                                                    </div>
-                                                    {/* Notification Badge */}
-                                                    {unreadCount && unreadCount > 0 ? (
-                                                        <div className="absolute top-2 right-2 w-2 h-2 bg-teal-400 rounded-full animate-pulse shadow-[0_0_10px_#2dd4bf]" />
-                                                    ) : null}
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-xl font-black text-white tracking-tighter uppercase italic leading-none mb-1">
-                                                        Circulars & Messages
-                                                    </h3>
-                                                    <p className="text-[10px] font-bold text-teal-200/60 uppercase tracking-widest flex items-center gap-2">
-                                                        Stay Updated
-                                                        {(unreadCount && unreadCount > 0) && (
-                                                            <span className="bg-teal-500/20 px-1.5 py-0.5 rounded text-teal-300 animate-pulse">{unreadCount} New</span>
-                                                        )}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className={`w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 transition-all duration-500 ${longTermExpanded ? 'rotate-180 bg-teal-500 text-black border-teal-400' : 'group-hover/notify:bg-white/10'}`}>
-                                                <ChevronDown size={16} />
-                                            </div>
-                                        </div>
-
-                                        {/* Preview (Collapsed State) - Show latest 1 item marquee-like or generic text */}
-                                        {!longTermExpanded && (
-                                            <div className="px-6 pb-6 pt-0">
-                                                <div className="p-3 rounded-xl bg-black/20 border border-teal-500/10 flex items-center gap-3">
-                                                    <div className="w-1 h-8 bg-teal-500/50 rounded-full flex-shrink-0" />
-                                                    <p className="text-xs text-slate-300 font-medium line-clamp-1">
-                                                        {notifications && notifications.length > 0 ? notifications[0].title : 'Tap to view all latest updates, circulars, and announcements.'}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </button>
-
-                                    {/* Expanded Content */}
-                                    <AnimatePresence>
-                                        {longTermExpanded && (
-                                            <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: 'auto', opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                transition={{ type: "spring", stiffness: 100, damping: 15 }}
-                                                className="overflow-hidden bg-black/20 border-t border-teal-500/10"
-                                            >
-                                                <div className="p-6 space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar">
-                                                    {(!notifications || notifications.length === 0) ? (
-                                                        <div className="text-center py-8">
-                                                            <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-3">
-                                                                <Bell size={20} className="text-slate-500" />
-                                                            </div>
-                                                            <p className="text-white font-bold mb-1">No New Circulars</p>
-                                                            <p className="text-xs text-slate-500">You're all caught up!</p>
-                                                        </div>
-                                                    ) : (
-                                                        notifications.map((notif: any) => (
-                                                            <div key={notif.id} className={`p-4 rounded-xl border transition-colors group/item relative ${notif.isRead ? 'bg-white/5 border-white/5' : 'bg-teal-500/10 border-teal-500/20'}`}>
-                                                                {!notif.isRead && (
-                                                                    <div className="absolute top-4 right-4 w-2 h-2 bg-teal-400 rounded-full shadow-[0_0_8px_#2dd4bf]" />
-                                                                )}
-                                                                <div className="flex justify-between items-start mb-2 pr-4">
-                                                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${notif.type === 'success' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' :
-                                                                        notif.type === 'warning' ? 'bg-amber-500/20 text-amber-400 border-amber-500/20' :
-                                                                            'bg-blue-500/20 text-blue-400 border-blue-500/20'
-                                                                        }`}>
-                                                                        {notif.type || 'Info'}
-                                                                    </span>
-                                                                    <span className="text-[10px] text-slate-500 font-mono">
-                                                                        <Clock size={10} className="inline mr-1" />
-                                                                        {mounted ? new Date(notif.createdAt).toLocaleDateString() : ''}
-                                                                    </span>
-                                                                </div>
-                                                                <h4 className="text-white font-bold text-sm mb-1 group-hover/item:text-teal-300 transition-colors pr-4">{notif.title}</h4>
-                                                                <p className="text-xs text-slate-400 leading-relaxed">
-                                                                    {notif.message}
-                                                                </p>
-                                                                <div className="flex items-center justify-between mt-3">
-                                                                    {notif.link ? (
-                                                                        <Link href={notif.link} className="inline-flex items-center gap-1 text-[10px] font-bold text-teal-400 hover:text-teal-300 uppercase tracking-wider">
-                                                                            View Details <ChevronRight size={12} />
-                                                                        </Link>
-                                                                    ) : <div />}
-
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation()
-                                                                            const shareData = {
-                                                                                title: notif.title,
-                                                                                text: `${notif.title}\n\n${notif.message}`,
-                                                                                url: notif.link || window.location.href
-                                                                            }
-
-                                                                            if (navigator.share) {
-                                                                                navigator.share(shareData).catch(console.error)
-                                                                            } else {
-                                                                                navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}\n${shareData.url}`)
-                                                                                toast.success('Message copied to clipboard')
-                                                                            }
-                                                                        }}
-                                                                        className="p-1.5 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 transition-colors"
-                                                                        title="Share Message"
-                                                                    >
-                                                                        <Share2 size={13} />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        ))
-                                                    )}
-
-                                                    {/* Empty State Helper */}
-                                                    {notifications && notifications.length > 0 && (
-                                                        <div className="text-center py-4">
-                                                            <p className="text-[10px] text-slate-600 uppercase tracking-widest">End of Updates</p>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </GlassCard>
-                            </PageItem>)}
 
                         {/* RECENT REFERRALS - EMERALD/CYAN THEME */}
                         <PageItem className="relative z-10 min-h-[300px] group/cyan">
@@ -1058,10 +1057,15 @@ export function ActionHomeBlueUnified({
                                                             <p className="font-bold text-xs text-slate-200 truncate group-hover/item:text-white transition-colors uppercase tracking-tight">
                                                                 {referral.studentName || referral.parentName}
                                                             </p>
-                                                            <div className="flex items-center gap-3 mt-1">
+                                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
                                                                 <span className={`px-2 py-0.5 rounded-md text-[8px] font-bold uppercase tracking-widest border ${badgeClass}`}>
                                                                     {statusLabel}
                                                                 </span>
+                                                                {(referral.campus || referral.gradeInterested) && (
+                                                                    <span className="text-[9px] text-slate-400 font-semibold truncate max-w-[160px]">
+                                                                        {[referral.campus, referral.gradeInterested].filter(Boolean).join(' • ')}
+                                                                    </span>
+                                                                )}
                                                                 <span className="text-[9px] text-slate-500 flex items-center gap-1 font-medium uppercase">
                                                                     <Clock size={8} /> {new Date(referral.createdAt).toLocaleDateString('en-GB')}
                                                                 </span>

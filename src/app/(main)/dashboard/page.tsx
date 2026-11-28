@@ -23,7 +23,7 @@ export default async function DashboardPage() {
     if (user.role === 'Super Admin') redirect('/superadmin')
     if (user.role === 'Finance Admin') redirect('/finance')
     if (user.role.includes('Campus')) redirect('/campus')
-    if (user.role.includes('Admin') && user.role !== 'Admission Admin') redirect('/admin')
+    if (user.role.includes('Admin')) redirect('/admin')
 
     const userData = user as any
     const [
@@ -52,9 +52,11 @@ export default async function DashboardPage() {
     ])
 
     const currentYearRecord = activeYears.find(y => y.isCurrent) || activeYears[0]
-    const previousYearRecord = activeYears
-        .filter(y => y.endDate < currentYearRecord.startDate)
-        .sort((a, b) => b.endDate.getTime() - a.endDate.getTime())[0]
+    const previousYearRecord = currentYearRecord
+        ? activeYears
+            .filter(y => y.endDate < currentYearRecord.startDate)
+            .sort((a, b) => b.endDate.getTime() - a.endDate.getTime())[0]
+        : undefined
 
     const activeYearStrings = activeYears.map(y => y.year)
     const CURRENT_ACADEMIC_YEAR = currentYearRecord?.year || '2025-2026'

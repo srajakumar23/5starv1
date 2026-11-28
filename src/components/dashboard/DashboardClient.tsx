@@ -362,6 +362,26 @@ export function DashboardClient({
     const hasMissingBankDetails = !user.accountNumber || !user.ifscCode
     const showBankReminder = hasMissingBankDetails && (referrals.length > 0 || (user.paymentAmount || 0) > 0)
 
+    const hasBankDetails = !hasMissingBankDetails
+    const isGroupA = (user.role === 'Parent' || user.role === 'Staff') && Boolean(user.childInAchariya)
+    const benefitMode = isGroupA ? 'Fee Waiver Benefit' : 'Direct Bank Payout'
+
+    const lastPaidDate = useMemo(() => {
+        const processed = (settlements || [])
+            .filter((s: any) => {
+                if (s.status !== 'Processed') return false
+                const remarks = (s.remarks || '').toLowerCase()
+                return !(remarks.includes('registration') || remarks.includes('refund') || s.amount === 25)
+            })
+            .sort((a: any, b: any) => {
+                const tA = new Date(a.payoutDate || a.createdAt || 0).getTime()
+                const tB = new Date(b.payoutDate || b.createdAt || 0).getTime()
+                return tB - tA
+            })
+        if (processed.length === 0) return null
+        return (processed[0].payoutDate || processed[0].createdAt || null) as string | null
+    }, [settlements])
+
     return (
         <div className="space-y-6">
             {/* Bank Detail Reminder Banner */}
@@ -477,6 +497,9 @@ export function DashboardClient({
                 unreadCount={unreadCount}
                 slabs={slabs}
                 leadPipelineCounts={leadPipelineCounts}
+                hasBankDetails={hasBankDetails}
+                benefitMode={benefitMode}
+                lastPaidDate={lastPaidDate}
             />
         </div>
     )
