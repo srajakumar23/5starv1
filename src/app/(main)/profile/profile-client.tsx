@@ -144,7 +144,8 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                 body: JSON.stringify({ image: optimizedImage })
             })
             if (response.ok) {
-                setProfileImage(optimizedImage)
+                const resData = await response.json().catch(() => ({}))
+                setProfileImage(resData.profileImage || optimizedImage)
                 toast.success('Photo updated successfully')
             } else {
                 const errData = await response.json().catch(() => ({}))
