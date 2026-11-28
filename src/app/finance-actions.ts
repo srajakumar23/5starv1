@@ -12,29 +12,8 @@ import { notifyRefundProcessed } from '@/lib/notification-helper'
 import { hasPermission, getScopeFilter } from '@/lib/permission-service'
 import { syncUserStats } from "@/lib/sync-service"
 import { getAccruedPayoutLiabilitiesInternal } from "@/lib/finance-liabilities-service"
+import { requireFinanceReadAccess, requireFinanceWriteAccess } from "@/lib/finance-auth"
 import { format } from 'date-fns'
-
-async function requireFinanceReadAccess() {
-    const user = await getCurrentUser()
-    if (!user) return null
-    const allowed =
-        user.role === 'Super Admin' ||
-        user.role === 'Finance Admin' ||
-        user.role.includes('Campus') ||
-        (await hasPermission('settlements')) ||
-        (await hasPermission('reports'))
-    return allowed ? user : null
-}
-
-async function requireFinanceWriteAccess() {
-    const user = await getCurrentUser()
-    if (!user) return null
-    const allowed =
-        user.role === 'Super Admin' ||
-        user.role === 'Finance Admin' ||
-        (await hasPermission('settlements'))
-    return allowed ? user : null
-}
 
 // --- Registration Transactions ---
 

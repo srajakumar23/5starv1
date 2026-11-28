@@ -4,6 +4,9 @@ import { getCurrentUser } from '@/lib/auth-service'
 import prisma from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 import { revalidatePath } from 'next/cache'
+import { logAction } from '@/lib/audit-logger'
+
+const PASSWORD_POLICY_REGEX = /^(?=.*[0-9])(?=.*[!@#$%^&*])(?=.*[A-Z])[a-zA-Z0-9!@#$%^&*]{8,}$/
 
 export async function changePassword(currentState: any, formData: FormData) {
     const user = await getCurrentUser()
@@ -11,9 +14,9 @@ export async function changePassword(currentState: any, formData: FormData) {
         return { success: false, error: 'Unauthorized' }
     }
 
-    const currentPassword = formData.get('currentPassword') as string
-    const newPassword = formData.get('newPassword') as string
-    const confirmPassword = formData.get('confirmPassword') as string
+    const currentPassword = (formData.get('currentPassword') as string) || ''
+    const newPassword = (formData.get('newPassword') as string) || ''
+    const confirmPassword = (formData.get('confirmPassword') as string) || ''
 
     if (!currentPassword || !newPassword || !confirmPassword) {
         return { success: false, error: 'All fields are required' }
@@ -23,31 +26,67 @@ export async function changePassword(currentState: any, formData: FormData) {
         return { success: false, error: 'New passwords do not match' }
     }
 
-    if (newPassword.length < 8) {
-        return { success: false, error: 'Password must be at least 8 characters' }
+    if (newPassword === currentPassword) {
+        return { success: false, error: 'New password must be different from current password' }
+    }
+
+    if (!PASSWORD_POLICY_REGEX.test(newPassword)) {
+        return {
+            success: false,
+            error: 'Password must be at least 8 characters with 1 uppercase, 1 special character (!@#$%^&*), and 1 number.'
+        }
     }
 
     try {
-        // Fetch fresh user record with password
-        const dbUser = await prisma.user.findUnique({
-            where: { userId: Number(user.userId) }
-        })
+        const isAdmin = 'adminId' in user && Boolean((user as any).adminId)
 
-        if (!dbUser || !dbUser.password) {
-            return { success: false, error: 'User not found' }
+        if (isAdmin) {
+            const adminId = Number((user as any).adminId)
+            const dbAdmin = await prisma.admin.findUnique({
+                where: { adminId },
+                select: { password: true }
+            })
+
+            if (!dbAdmin || !dbAdmin.password) {
+                return { success: false, error: 'Account password not found' }
+            }
+
+            const isValid = await bcrypt.compare(currentPassword, dbAdmin.password)
+            if (!isValid) {
+                return { success: false, error: 'Incorrect current password' }
+            }
+
+            const hashedPassword = await bcrypt.hash(newPassword, 10)
+            await prisma.admin.update({
+                where: { adminId },
+                data: { password: hashedPassword }
+            })
+
+            await logAction('PASSWORD_CHANGED', 'auth', 'Admin changed password from profile', String(adminId), adminId, { isAdmin: true })
+        } else {
+            const userId = Number(user.userId)
+            const dbUser = await prisma.user.findUnique({
+                where: { userId },
+                select: { password: true }
+            })
+
+            if (!dbUser || !dbUser.password) {
+                return { success: false, error: 'Account password not found' }
+            }
+
+            const isValid = await bcrypt.compare(currentPassword, dbUser.password)
+            if (!isValid) {
+                return { success: false, error: 'Incorrect current password' }
+            }
+
+            const hashedPassword = await bcrypt.hash(newPassword, 10)
+            await prisma.user.update({
+                where: { userId },
+                data: { password: hashedPassword }
+            })
+
+            await logAction('PASSWORD_CHANGED', 'auth', 'User changed password from profile', String(userId), userId, { isUser: true })
         }
-
-        const isValid = await bcrypt.compare(currentPassword, dbUser.password)
-        if (!isValid) {
-            return { success: false, error: 'Incorrect current password' }
-        }
-
-        const hashedPassword = await bcrypt.hash(newPassword, 10)
-
-        await prisma.user.update({
-            where: { userId: Number(user.userId) },
-            data: { password: hashedPassword }
-        })
 
         revalidatePath('/profile')
         return { success: true, message: 'Password updated successfully' }

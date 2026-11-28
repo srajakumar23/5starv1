@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
 
         const body = await request.json()
-        const { fullName, email, address, childEprNo, grade, childCampusId, bankName, accountNumber, ifscCode } = body
+        const { fullName, email, address, childName, childEprNo, grade, childCampusId, bankName, accountNumber, ifscCode } = body
 
         if (ifscCode) {
             const result = ifscSchema.safeParse(ifscCode)
@@ -65,7 +65,8 @@ export async function POST(request: Request) {
             if (accountNumber !== undefined) updateData.accountNumber = accountNumber
             if (ifscCode !== undefined) updateData.ifscCode = ifscCode
 
-            // Only update child details if present (Staff flow)
+            // Only update child details if present (Staff/Parent flow)
+            if (childName !== undefined) updateData.childName = childName?.trim() || null
             if (childEprNo !== undefined) updateData.childEprNo = childEprNo
             if (grade !== undefined) updateData.grade = grade
             // Safely handle childCampusId
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
             // Let's update `childEprNo` and `grade`. 
             // And set `benefitStatus` = 'PendingVerification' so Admin sees it.
 
-            if (grade !== undefined || childEprNo !== undefined) {
+            if (grade !== undefined || childEprNo !== undefined || childName !== undefined) {
                 // @ts-ignore - Enum might be stale in some environments
                 updateData.benefitStatus = 'PendingVerification'
             }

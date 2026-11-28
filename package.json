@@ -9,6 +9,7 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test src/tests/*.test.ts",
     "db:check": "tsx src/scripts/check-db.ts"
   },
   "dependencies": {

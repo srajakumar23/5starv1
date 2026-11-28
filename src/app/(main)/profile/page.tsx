@@ -22,13 +22,15 @@ export default async function ProfilePage() {
     if (!user) redirect('/')
 
     // Serialize user data for client component
-    const isUser = 'userId' in user
+    // IMPORTANT: Admin objects also expose `userId: admin.adminId`, so check `adminId` first!
+    const isAdmin = 'adminId' in user && Boolean((user as any).adminId)
+    const isUser = !isAdmin && 'userId' in user
 
     // Decrypt sensitive data if present
     const bankDetails = isUser && (user as any).bankAccountDetails ? decrypt((user as any).bankAccountDetails) : undefined
     const aadhar = isUser && (user as any).aadharNo ? decrypt((user as any).aadharNo) : undefined
 
-    // Fetch Referrals for Benefit Calculation
+    // Fetch Referrals for Benefit Calculation (Ambassadors only)
     let projectedValue = 0
     let securedValue = 0
     let confirmedCount = 0
@@ -49,22 +51,23 @@ export default async function ProfilePage() {
     }
 
     const userData = {
-        userId: 'userId' in user ? user.userId : undefined,
-        adminId: 'adminId' in user ? user.adminId : undefined,
+        isAdmin,
+        userId: isUser ? user.userId : undefined,
+        adminId: isAdmin ? (user as any).adminId : undefined,
         fullName: user.fullName,
-        mobileNumber: 'mobileNumber' in user ? user.mobileNumber : undefined,
-        adminMobile: 'adminMobile' in user ? (user as any).adminMobile : undefined,
+        mobileNumber: isUser && 'mobileNumber' in user ? user.mobileNumber : undefined,
+        adminMobile: isAdmin ? ((user as any).adminMobile || user.mobileNumber) : undefined,
         role: user.role,
-        referralCode: 'referralCode' in user ? (user.referralCode ?? undefined) : undefined,
+        referralCode: isUser && 'referralCode' in user ? (user.referralCode ?? undefined) : undefined,
         assignedCampus: 'assignedCampus' in user ? (user.assignedCampus ?? undefined) : undefined,
-        yearFeeBenefitPercent: 'yearFeeBenefitPercent' in user ? user.yearFeeBenefitPercent : undefined,
-        longTermBenefitPercent: 'longTermBenefitPercent' in user ? user.longTermBenefitPercent : undefined,
-        email: 'email' in user ? (user.email ?? undefined) : undefined,
-        address: 'address' in user ? (user.address ?? undefined) : undefined,
-        profileImage: 'profileImage' in user ? (user.profileImage ?? undefined) : undefined,
-        createdAt: 'createdAt' in user ? user.createdAt.toISOString() : new Date().toISOString(),
+        yearFeeBenefitPercent: isUser && 'yearFeeBenefitPercent' in user ? user.yearFeeBenefitPercent : undefined,
+        longTermBenefitPercent: isUser && 'longTermBenefitPercent' in user ? user.longTermBenefitPercent : undefined,
+        email: 'email' in user ? ((user as any).email ?? undefined) : undefined,
+        address: 'address' in user ? ((user as any).address ?? undefined) : undefined,
+        profileImage: 'profileImage' in user ? ((user as any).profileImage ?? undefined) : undefined,
+        createdAt: 'createdAt' in user && (user as any).createdAt ? new Date((user as any).createdAt).toISOString() : new Date().toISOString(),
         confirmedReferralCount: confirmedCount,
-        studentFee: 'studentFee' in user ? (user as any).studentFee : undefined,
+        studentFee: isUser ? (user as any).studentFee : undefined,
         projectedValue: projectedValue,
         securedValue: securedValue,
         // New Registration Fields
@@ -81,7 +84,7 @@ export default async function ProfilePage() {
         childInAchariya: isUser ? (user as any).childInAchariya : false,
         aadharNo: aadhar,
         transactionId: isUser ? (user as any).transactionId : undefined,
-        status: isUser ? (user as any).status : undefined,
+        status: isUser ? (user as any).status : (user as any).status,
         benefitStatus: isUser ? (user as any).benefitStatus : undefined
     }
 

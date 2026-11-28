@@ -7,11 +7,17 @@ import { logAction } from '@/lib/audit-logger'
 import { ensureUserReferralCode } from '@/lib/referral-service'
 
 /**
- * User requests their account to be deleted
+ * User requests their account to be deleted (Ambassadors / Parents only)
  */
 export async function requestAccountDeletion() {
     const user = await getCurrentUser()
-    if (!user || !('userId' in user)) return { success: false, error: 'Unauthorized' }
+    if (!user || ('adminId' in user && (user as any).adminId) || !('userId' in user)) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
+    if ((user as any).status === 'Deletion_Requested') {
+        return { success: true }
+    }
 
     try {
         await prisma.user.update({
@@ -24,10 +30,53 @@ export async function requestAccountDeletion() {
 
         await logAction('UPDATE', 'user', `Account deletion requested by ${user.fullName}`, String(user.userId))
         revalidatePath('/profile')
+        revalidatePath('/superadmin')
         return { success: true }
     } catch (error) {
         console.error('Request Deletion Error:', error)
         return { success: false, error: 'Failed to request deletion' }
+    }
+}
+
+/**
+ * User withdraws their pending account closure request before Super Admin approval
+ */
+export async function cancelAccountDeletion() {
+    const user = await getCurrentUser()
+    if (!user || ('adminId' in user && (user as any).adminId) || !('userId' in user)) {
+        return { success: false, error: 'Unauthorized' }
+    }
+
+    try {
+        const dbUser = await prisma.user.findUnique({
+            where: { userId: Number(user.userId) },
+            select: { status: true, paymentStatus: true }
+        })
+
+        if (!dbUser || dbUser.status !== 'Deletion_Requested') {
+            return { success: false, error: 'No pending deletion request found' }
+        }
+
+        const restoredStatus =
+            dbUser.paymentStatus === 'Success' || dbUser.paymentStatus === 'Completed'
+                ? 'Active'
+                : 'Pending'
+
+        await prisma.user.update({
+            where: { userId: Number(user.userId) },
+            data: {
+                status: restoredStatus,
+                deletionRequestedAt: null
+            }
+        })
+
+        await logAction('UPDATE', 'user', `Account deletion request cancelled by ${user.fullName}`, String(user.userId))
+        revalidatePath('/profile')
+        revalidatePath('/superadmin')
+        return { success: true, status: restoredStatus }
+    } catch (error) {
+        console.error('Cancel Deletion Error:', error)
+        return { success: false, error: 'Failed to cancel deletion request' }
     }
 }
 

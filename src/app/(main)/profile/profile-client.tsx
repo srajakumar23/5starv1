@@ -1,21 +1,25 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Star, Phone, Award, Calendar, Shield, Edit2, Check, X, Upload, Mail, MapPin, Trash2, ArrowRight, User, Camera, Settings, LogOut, ChevronRight, HelpCircle, CreditCard, Lock, Smartphone, Download, GraduationCap } from 'lucide-react'
+import {
+    Star, Phone, Award, Shield, Edit2, Check, X, Mail, MapPin,
+    User, Camera, LogOut, ChevronRight, HelpCircle, CreditCard,
+    Lock, Smartphone, Download, GraduationCap, Copy, Eye, EyeOff, KeyRound, Clock
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { PrivacyModal } from '@/components/PrivacyModal'
-import { requestAccountDeletion } from '@/app/deletion-actions'
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { motion, AnimatePresence } from 'framer-motion'
-import { PageAnimate, PageItem } from '@/components/PageAnimate'
-import { ScrollLock } from '@/components/ui/ScrollLock'
+import { requestAccountDeletion, cancelAccountDeletion } from '@/app/deletion-actions'
+import { changePassword } from './actions'
+import { PageAnimate } from '@/components/PageAnimate'
 import { GRADES } from '@/lib/constants'
 import { getCampuses } from '@/app/campus-actions'
 import { getGradesForCampus } from '@/lib/grade-utils'
 import { ifscSchema, accountNumberSchema } from '@/lib/validators'
+import { useRouter } from 'next/navigation'
 
 interface ProfileClientProps {
     user: {
+        isAdmin?: boolean
         userId?: number
         adminId?: number
         fullName: string
@@ -51,18 +55,29 @@ interface ProfileClientProps {
     logoutAction: () => Promise<{ success: boolean; error?: string }>
 }
 
-import { useRouter } from 'next/navigation'
+function maskAccountNumber(acc: string): string {
+    const clean = acc.trim()
+    if (clean.length <= 4) return clean
+    return `${'•'.repeat(Math.min(8, clean.length - 4))}${clean.slice(-4)}`
+}
 
 export default function ProfileClient({ user, logoutAction }: ProfileClientProps) {
     const router = useRouter()
+    const isAdmin = Boolean(user.isAdmin)
+    const isLight = isAdmin
+
     const [isEditingProfile, setIsEditingProfile] = useState(false)
     const [isEditingBank, setIsEditingBank] = useState(false)
+    const [isChangingPassword, setIsChangingPassword] = useState(false)
+
     const [fullName, setFullName] = useState(user.fullName)
     const [email, setEmail] = useState(user.email || '')
     const [address, setAddress] = useState(user.address || '')
     const [bankName, setBankName] = useState(user.bankName || '')
     const [accountNumber, setAccountNumber] = useState(user.accountNumber || '')
     const [ifscCode, setIfscCode] = useState(user.ifscCode || '')
+    const [showAccountNumber, setShowAccountNumber] = useState(false)
+    const [copiedCode, setCopiedCode] = useState(false)
 
     const [childEprNo, setChildEprNo] = useState(user.childEprNo || '')
     const [childName, setChildName] = useState(user.childName || '')
@@ -71,26 +86,69 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
     const [saving, setSaving] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [showPrivacyModal, setShowPrivacyModal] = useState(false)
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const [accountStatus, setAccountStatus] = useState(user.status || 'Active')
+    const [cancellingDeletion, setCancellingDeletion] = useState(false)
+
+    // Change Password states
+    const [currentPassword, setCurrentPassword] = useState('')
+    const [newPassword, setNewPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+    const [showPasswords, setShowPasswords] = useState(false)
+    const [savingPassword, setSavingPassword] = useState(false)
+
+    // Campus loading + native APK detection
     const [campuses, setCampuses] = useState<any[]>([])
+    const [campusesLoaded, setCampusesLoaded] = useState(false)
     const [childCampusId, setChildCampusId] = useState<string>(
         user.childCampusId ? user.childCampusId.toString() : ''
     )
+    const [isNativeApp, setIsNativeApp] = useState(false)
 
     useEffect(() => {
-        const fetchCampuses = async () => {
-            const res = await getCampuses()
-            if (res.success && res.campuses) {
-                setCampuses(res.campuses)
-            }
+        if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) {
+            setIsNativeApp(true)
         }
-        if ((user.role === 'Staff' && user.childInAchariya) || user.role === 'Parent') fetchCampuses()
-    }, [user.role, user.childInAchariya])
+    }, [])
 
-    // Derived or safe default stats
+    useEffect(() => {
+        if (!isAdmin && ((user.role === 'Staff' && user.childInAchariya) || user.role === 'Parent')) {
+            const fetchCampuses = async () => {
+                try {
+                    const res = await getCampuses()
+                    if (res.success && res.campuses) {
+                        setCampuses(res.campuses)
+                    }
+                } finally {
+                    setCampusesLoaded(true)
+                }
+            }
+            fetchCampuses()
+        }
+    }, [isAdmin, user.role, user.childInAchariya])
+
     const referralCount = user.confirmedReferralCount || 0
-    // Use projectedValue passed from server side calculations (Matches Dashboard Projected Growth)
-    const totalEarned = user.projectedValue !== undefined ? user.projectedValue : 0
+
+    const copyPartnerCode = async (code: string) => {
+        try {
+            if (navigator?.clipboard?.writeText) {
+                await navigator.clipboard.writeText(code)
+            } else {
+                const ta = document.createElement('textarea')
+                ta.value = code
+                ta.style.position = 'fixed'
+                ta.style.opacity = '0'
+                document.body.appendChild(ta)
+                ta.select()
+                document.execCommand('copy')
+                document.body.removeChild(ta)
+            }
+            setCopiedCode(true)
+            toast.success('Partner ID copied')
+            setTimeout(() => setCopiedCode(false), 2000)
+        } catch {
+            toast.error('Failed to copy Partner ID')
+        }
+    }
 
     const compressProfileImage = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -147,11 +205,12 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                 const resData = await response.json().catch(() => ({}))
                 setProfileImage(resData.profileImage || optimizedImage)
                 toast.success('Photo updated successfully')
+                router.refresh()
             } else {
                 const errData = await response.json().catch(() => ({}))
                 toast.error(errData.error || 'Failed to upload photo')
             }
-        } catch (error) {
+        } catch {
             toast.error('Error uploading photo')
         } finally {
             setUploading(false)
@@ -161,24 +220,26 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
     const handleSave = async () => {
         setSaving(true)
         try {
+            const canEditChild = !isAdmin && !user.childInAchariya && ((user.role === 'Staff' && user.childInAchariya) || user.role === 'Parent')
+
             const body = {
                 fullName,
                 email,
                 address,
-                ...(isEditingProfile && ((user.role === 'Staff' && user.childInAchariya) || user.role === 'Parent') && {
+                ...(isEditingProfile && canEditChild && {
                     childEprNo,
                     childName,
                     grade,
                     childCampusId: childCampusId ? parseInt(childCampusId) : undefined
                 }),
-                ...(isEditingBank && {
+                ...(isEditingBank && !isAdmin && {
                     bankName,
                     accountNumber,
                     ifscCode,
                 })
             }
 
-            if (isEditingBank) {
+            if (isEditingBank && !isAdmin) {
                 if (ifscCode) {
                     const result = ifscSchema.safeParse(ifscCode)
                     if (!result.success) {
@@ -208,10 +269,8 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                 setIsEditingBank(false)
                 router.refresh()
             } else {
-                const data = await response.json()
-                // Show specific functionality error if available
-                toast.error(data.details || data.error || 'Failed to update profile')
-                console.error('Update failed:', data)
+                const data = await response.json().catch(() => ({}))
+                toast.error(data.error || 'Failed to update profile')
             }
         } catch {
             toast.error('Error updating profile')
@@ -224,141 +283,263 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
         setFullName(user.fullName)
         setEmail(user.email || '')
         setAddress(user.address || '')
-        setBankName((user as any).bankName || '')
-        setAccountNumber((user as any).accountNumber || '')
-        setIfscCode((user as any).ifscCode || '')
-        setChildEprNo((user as any).childEprNo || '')
-        setChildName((user as any).childName || '')
-        setGrade((user as any).grade || '')
+        setBankName(user.bankName || '')
+        setAccountNumber(user.accountNumber || '')
+        setIfscCode(user.ifscCode || '')
+        setChildEprNo(user.childEprNo || '')
+        setChildName(user.childName || '')
+        setGrade(user.grade || '')
+        setChildCampusId(user.childCampusId ? user.childCampusId.toString() : '')
         setIsEditingProfile(false)
         setIsEditingBank(false)
     }
 
-    const handleDeleteRequest = async () => {
-        const res = await requestAccountDeletion();
-        if (res.success) {
-            toast.success('Deletion request submitted to Super Admin.');
-        } else {
-            toast.error(res.error || 'Failed to submit request');
+    const handlePasswordSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setSavingPassword(true)
+        try {
+            const fd = new FormData()
+            fd.set('currentPassword', currentPassword)
+            fd.set('newPassword', newPassword)
+            fd.set('confirmPassword', confirmPassword)
+            const res = await changePassword(null, fd)
+            if (res.success) {
+                toast.success(res.message || 'Password updated successfully')
+                setCurrentPassword('')
+                setNewPassword('')
+                setConfirmPassword('')
+                setIsChangingPassword(false)
+            } else {
+                toast.error(res.error || 'Failed to update password')
+            }
+        } catch {
+            toast.error('Failed to update password')
+        } finally {
+            setSavingPassword(false)
         }
     }
 
+    const handleDeleteRequest = async () => {
+        const res = await requestAccountDeletion()
+        if (res.success) {
+            setAccountStatus('Deletion_Requested')
+            toast.success('Account closure request submitted for Super Admin review.')
+            router.refresh()
+        } else {
+            toast.error(res.error || 'Failed to submit request')
+        }
+    }
+
+    const handleCancelDeleteRequest = async () => {
+        setCancellingDeletion(true)
+        try {
+            const res = await cancelAccountDeletion()
+            if (res.success) {
+                setAccountStatus(res.status || 'Active')
+                toast.success('Account closure request cancelled.')
+                router.refresh()
+            } else {
+                toast.error(res.error || 'Failed to cancel closure request')
+            }
+        } finally {
+            setCancellingDeletion(false)
+        }
+    }
+
+    const handleSignOut = async () => {
+        try {
+            const result = await logoutAction()
+            if (result.success) {
+                router.push('/')
+            } else {
+                toast.error(result.error || 'Failed to sign out')
+            }
+        } catch {
+            toast.error('Failed to sign out')
+        }
+    }
+
+    const resolvedStaffCampus = !user.childCampusId
+        ? (user.assignedCampus || 'Not Assigned')
+        : campuses.find(c => c.id === user.childCampusId)?.campusName ||
+          (campusesLoaded ? (user.assignedCampus || 'Not Assigned') : 'Loading...')
+
+    // Theme tokens: Admin sits on light bg-slate-50, Ambassadors sit on dark bg-[#0f172a]
+    const cardSurface = isLight
+        ? 'bg-white border border-slate-200/90 shadow-sm hover:border-blue-200'
+        : 'bg-white/5 border border-white/10 hover:bg-white/10'
+    const actionSurface = isLight
+        ? 'bg-white border border-slate-200/90 shadow-sm hover:border-blue-300 hover:shadow-md'
+        : 'bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/15'
+    const formSurface = isLight
+        ? 'bg-white border border-slate-200 shadow-sm'
+        : 'bg-white/5 border border-white/10'
+    const headingText = isLight ? 'text-slate-900' : 'text-white'
+    const subLabelText = isLight ? 'text-slate-500' : 'text-white/40'
+    const chevronText = isLight ? 'text-slate-400 group-hover:text-slate-700' : 'text-white/25 group-hover:text-white/60'
+    const inputClasses = isLight
+        ? 'w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none transition-colors'
+        : 'w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:border-amber-500/50 focus:outline-none transition-colors'
+
     return (
-        <div className="relative w-full font-[family-name:var(--font-outfit)]">
-            {/* Ambient Background Effects - Sapphire Glows */}
-            <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-                <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-[120px]" />
-                <div className="absolute top-[20%] right-[-10%] w-[400px] h-[400px] bg-indigo-600/10 rounded-full blur-[100px]" />
-            </div>
+        <div className="relative w-full overflow-x-hidden font-[family-name:var(--font-outfit)]">
+            {/* Ambient Background Effects (Dark Ambassador theme only) */}
+            {!isLight && (
+                <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+                    <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-[120px]" />
+                    <div className="absolute top-[20%] right-[-10%] w-[400px] h-[400px] bg-indigo-600/10 rounded-full blur-[100px]" />
+                </div>
+            )}
 
             {/* Main Content Container */}
-            <PageAnimate className="relative z-10 w-full max-w-sm mx-auto flex flex-col pb-24">
-                {/* Hero Profile Header - MATCHES DASHBOARD HERO */}
-                <div className="absolute top-0 left-[-50vw] right-[-50vw] h-96 !bg-gradient-to-br !from-blue-600 !to-blue-900 z-0 pointer-events-none opacity-100" />
+            <PageAnimate className={`relative z-10 w-full ${isAdmin ? 'max-w-lg' : 'max-w-md'} mx-auto flex flex-col pb-24`}>
 
-                <header className="py-6 flex items-center justify-between pl-2 relative z-10">
-                    <h1 className="text-xl font-black text-white tracking-tight uppercase italic">My Profile</h1>
+                {/* Self-Contained Rounded Hero Card (Zero overlapping absolute banners) */}
+                <div className="relative rounded-3xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900 p-5 sm:p-6 shadow-2xl border border-white/15 overflow-hidden mb-6">
+                    <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+                    <div className="absolute -bottom-16 -left-16 w-44 h-44 bg-indigo-400/20 rounded-full blur-2xl pointer-events-none" />
 
-                    <div className="flex items-center gap-3">
-                        {!isEditingProfile && !isEditingBank && (
-                            <div
+                    {/* Top Bar inside Hero */}
+                    <div className="relative z-10 flex items-center justify-between mb-6">
+                        <h1 className="text-xl font-black text-white tracking-tight uppercase italic">My Profile</h1>
+
+                        {!isEditingProfile && !isEditingBank && !isChangingPassword && (
+                            <button
+                                type="button"
                                 onClick={() => setIsEditingProfile(true)}
-                                className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/20 active:scale-95 transition-all relative cursor-pointer"
-                                style={{
-                                    backgroundColor: 'var(--accent-gold)',
-                                    borderColor: 'var(--accent-gold)',
-                                    borderWidth: '1px',
-                                    zIndex: 100,
-                                    opacity: 1,
-                                    display: 'flex'
-                                }}
-                                role="button"
+                                className="no-dark-override no-mobile-btn p-0 w-10 h-10 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 border border-amber-300 flex items-center justify-center shadow-lg shadow-amber-500/30 active:scale-95 transition-all cursor-pointer"
                                 aria-label="Edit Profile"
+                                title="Edit Profile"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ minWidth: '20px', minHeight: '20px', display: 'block' }}>
-                                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                                </svg>
-                            </div>
+                                <Edit2 size={18} strokeWidth={2.5} className="text-slate-950 shrink-0" />
+                            </button>
                         )}
                     </div>
-                </header>
 
-                {/* Hero Section */}
-                <div className="flex flex-col items-center py-6">
-                    {/* Avatar with Gold Ring */}
-                    <div className="relative mb-6 group">
-                        <div className="absolute -inset-1 bg-gradient-to-tr from-[var(--radiant-gold)] to-[var(--radiant-amber)] rounded-full blur opacity-70 animate-pulse"></div>
-                        <div className="relative w-28 h-28 rounded-full border-4 border-[#0f172a] bg-gradient-to-br from-[var(--radiant-indigo)] to-[var(--radiant-violet)] flex items-center justify-center overflow-hidden shadow-2xl">
-                            {profileImage ? (
-                                <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
-                            ) : (
-                                <span className="text-3xl font-bold text-white">{fullName ? fullName.charAt(0) : <User />}</span>
+                    {/* Avatar, Name, Badges & Metrics */}
+                    <div className="relative z-10 flex flex-col items-center">
+                        <div className="relative mb-4 group">
+                            <div className="absolute -inset-1 bg-gradient-to-tr from-amber-400 to-yellow-500 rounded-full blur opacity-70 animate-pulse" />
+                            <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-slate-950/80 bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center overflow-hidden shadow-2xl">
+                                {profileImage ? (
+                                    <img
+                                        src={profileImage}
+                                        alt="Profile"
+                                        onError={() => setProfileImage(undefined)}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="text-3xl font-bold text-white">{fullName ? fullName.charAt(0).toUpperCase() : <User />}</span>
+                                )}
+                            </div>
+
+                            <label
+                                title="Upload Profile Photo"
+                                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center border-2 border-slate-950 shadow-lg cursor-pointer hover:bg-amber-300 transition-colors"
+                            >
+                                <Camera size={14} strokeWidth={2.5} />
+                                <input
+                                    type="file"
+                                    className="hidden"
+                                    accept="image/*"
+                                    onChange={handlePhotoUpload}
+                                    disabled={uploading}
+                                />
+                            </label>
+                            {uploading && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
+                                    <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                </div>
                             )}
                         </div>
 
-                        {/* Upload Button */}
-                        <label className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-amber-500 text-black flex items-center justify-center border-4 border-[#0f172a] shadow-lg cursor-pointer hover:bg-amber-400 transition-colors">
-                            <Camera size={14} />
-                            <input
-                                type="file"
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handlePhotoUpload}
-                                disabled={uploading}
-                            />
-                        </label>
-                        {uploading && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full">
-                                <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <h2 className="text-2xl font-black text-white mb-2 text-center tracking-tight">{fullName}</h2>
+
+                        {/* Role / Tier & Partner ID Pill */}
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                            {isAdmin ? (
+                                <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-white/15 border border-white/25">
+                                    <Shield size={12} className="text-amber-300" />
+                                    <span className="text-xs font-bold text-white uppercase tracking-wider">{user.role}</span>
+                                </div>
+                            ) : user.yearFeeBenefitPercent !== undefined ? (
+                                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/15 border border-amber-300/30">
+                                    <Star size={12} className="text-amber-300 fill-amber-300" />
+                                    <span className="text-xs font-bold text-amber-200 uppercase tracking-wider">
+                                        {referralCount >= 5 ? 'Prestigious Partner' : 'Ambassador'}
+                                    </span>
+                                </div>
+                            ) : null}
+
+                            {!isAdmin && user.referralCode && (
+                                <button
+                                    type="button"
+                                    onClick={() => copyPartnerCode(user.referralCode!)}
+                                    className="no-dark-override no-mobile-btn flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 hover:bg-white/25 border border-white/25 text-xs font-mono font-bold text-white transition-colors"
+                                >
+                                    <span>{user.referralCode}</span>
+                                    {copiedCode ? <Check size={12} className="text-emerald-300" /> : <Copy size={12} className="text-white/80" />}
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Ambassador Metrics Inside Hero Card */}
+                        {!isAdmin && (
+                            <div className="w-full mt-6 space-y-3">
+                                <div className="grid grid-cols-2 gap-3 w-full">
+                                    <div className="bg-slate-950/35 border border-white/15 rounded-2xl p-4 flex flex-col items-center text-center backdrop-blur-md">
+                                        <span className="text-2xl font-black text-white mb-0.5">{referralCount}</span>
+                                        <span className="text-[10px] text-white/60 uppercase tracking-widest font-black">Confirmed Units</span>
+                                    </div>
+                                    <div className="bg-slate-950/35 border border-white/15 rounded-2xl p-4 flex flex-col items-center text-center backdrop-blur-md">
+                                        <span className="text-2xl font-black text-white mb-0.5">₹{user.securedValue?.toLocaleString('en-IN') || '0'}</span>
+                                        <span className="text-[10px] text-white/60 uppercase tracking-widest font-black">Total Yield</span>
+                                    </div>
+                                </div>
+
+                                {(user.projectedValue || 0) > (user.securedValue || 0) && (
+                                    <div className="bg-amber-400/15 border border-amber-300/30 rounded-2xl p-4 flex items-center justify-between backdrop-blur-md">
+                                        <div>
+                                            <p className="text-[9px] text-amber-200/80 font-black uppercase tracking-widest mb-1">Projected Potential</p>
+                                            <p className="text-lg font-black text-amber-300 tracking-tight">₹{user.projectedValue?.toLocaleString('en-IN')}</p>
+                                        </div>
+                                        <div className="p-2 bg-amber-400/20 rounded-xl border border-amber-300/30">
+                                            <Award size={20} className="text-amber-300" />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
-
-                    <h2 className="text-2xl font-black text-white mb-1 text-center tracking-tight">{fullName}</h2>
-
-                    {user.yearFeeBenefitPercent !== undefined && (
-                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--radiant-gold)]/10 border border-[var(--radiant-gold)]/20 mb-6">
-                            <Star size={12} className="text-[var(--radiant-gold)] fill-[var(--radiant-gold)]" />
-                            <span className="text-xs font-bold text-[var(--radiant-gold)] uppercase tracking-wider">
-                                {referralCount >= 5 ? 'Prestigious Partner' : 'Ambassador'}
-                            </span>
-                        </div>
-                    )}
-
-                    {/* Professional Metrics - MATCHES DASHBOARD STAT CARDS */}
-                    <div className="grid grid-cols-2 gap-3 mb-8 w-full px-2">
-                        <div className="!bg-gradient-to-br !from-indigo-950 !via-indigo-900/90 !to-blue-900 border border-white/10 rounded-2xl p-4 flex flex-col items-center text-center backdrop-blur-3xl shadow-xl">
-                            <span className="text-2xl font-black text-white mb-0.5">{referralCount}</span>
-                            <span className="text-[10px] text-white/40 uppercase tracking-widest font-black">Confirmed Units</span>
-                        </div>
-                        <div className="!bg-gradient-to-br !from-indigo-950 !via-indigo-900/90 !to-blue-900 border border-white/10 rounded-2xl p-4 flex flex-col items-center text-center backdrop-blur-3xl shadow-xl relative overflow-hidden">
-                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-400/10 to-transparent pointer-events-none" />
-                            <span className="text-2xl font-black text-white mb-0.5">₹{(user as any).securedValue?.toLocaleString('en-IN') || '0'}</span>
-                            <span className="text-[10px] text-white/40 uppercase tracking-widest font-black">Total Yield</span>
-                        </div>
-                    </div>
-
-                    {/* Potential Growth Indicator */}
-                    {(user as any).projectedValue > (user as any).securedValue && (
-                        <div className="w-full px-2 mb-8">
-                            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-center justify-between backdrop-blur-xl">
-                                <div>
-                                    <p className="text-[9px] text-amber-400/60 font-black uppercase tracking-widest mb-1">Projected Potential</p>
-                                    <p className="text-lg font-black text-amber-400 tracking-tight">₹{(user as any).projectedValue?.toLocaleString('en-IN')}</p>
-                                </div>
-                                <div className="p-2 bg-amber-400/20 rounded-xl border border-amber-400/20">
-                                    <Award size={20} className="text-amber-400" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
+                {/* Pending Account Closure Status Banner (Ambassadors only) */}
+                {!isAdmin && accountStatus === 'Deletion_Requested' && (
+                    <div className="w-full mb-6 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-3">
+                        <div className="flex items-start gap-3">
+                            <Clock size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                            <div>
+                                <p className="text-xs font-black text-amber-300 uppercase tracking-wider">Account Closure Pending Review</p>
+                                <p className="text-[11px] text-white/70 mt-1 leading-relaxed">
+                                    Super Admin is reviewing your closure request. Changed your mind? You can cancel it before approval.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            disabled={cancellingDeletion}
+                            onClick={handleCancelDeleteRequest}
+                            className="no-dark-override px-4 py-2 rounded-xl bg-amber-400 text-slate-950 text-xs font-bold hover:bg-amber-300 disabled:opacity-50 transition-colors"
+                        >
+                            {cancellingDeletion ? 'Cancelling...' : 'Cancel Closure Request'}
+                        </button>
+                    </div>
+                )}
+
                 {/* Student Details Card (For Parents & Staff with Linked Children) */}
-                {((user as any).childName || (user as any).childEprNo) && (
+                {!isAdmin && (user.childName || user.childEprNo) && (
                     <div className="w-full mb-6">
                         <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900/40 border border-indigo-500/20 rounded-2xl p-5 relative overflow-hidden group">
-                            {/* Decorative Glow */}
                             <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl group-hover:bg-indigo-500/20 transition-colors" />
 
                             <div className="flex items-start justify-between mb-4 relative z-10">
@@ -370,9 +551,9 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                         <h3 className="text-sm font-bold text-white uppercase tracking-wide">Student Details</h3>
                                         <div className="flex items-center gap-1.5 mt-0.5">
                                             {(() => {
-                                                const isVerified = (user as any).childInAchariya;
-                                                const s = (user as any).benefitStatus;
-                                                
+                                                const isVerified = user.childInAchariya
+                                                const s = user.benefitStatus
+
                                                 if (isVerified) {
                                                     return (
                                                         <>
@@ -381,7 +562,7 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                                         </>
                                                     )
                                                 }
-                                                
+
                                                 if (s === 'PendingVerification') {
                                                     return (
                                                         <>
@@ -390,7 +571,7 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                                         </>
                                                     )
                                                 }
-                                                
+
                                                 return (
                                                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 w-full">
                                                         <div className="flex items-center gap-1.5">
@@ -399,7 +580,7 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                                         </div>
                                                         <button
                                                             onClick={() => setIsEditingProfile(true)}
-                                                            className="px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500/30 transition-all flex items-center gap-1.5"
+                                                            className="no-dark-override no-mobile-btn px-3 py-1 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[10px] font-black uppercase tracking-widest hover:bg-rose-500/30 transition-all flex items-center gap-1.5"
                                                         >
                                                             <Edit2 size={10} />
                                                             Fix Details
@@ -415,22 +596,22 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                             <div className="grid grid-cols-2 gap-y-3 gap-x-2 relative z-10">
                                 <div>
                                     <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mb-0.5">Student Name</p>
-                                    <p className="text-sm font-bold text-white tracking-tight truncate">{(user as any).childName || 'Pending...'}</p>
+                                    <p className="text-sm font-bold text-white tracking-tight truncate">{user.childName || 'Pending...'}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mb-0.5">Grade</p>
-                                    <p className="text-sm font-bold text-white tracking-tight">{(user as any).grade || 'N/A'}</p>
+                                    <p className="text-sm font-bold text-white tracking-tight">{user.grade || 'N/A'}</p>
                                 </div>
                                 <div>
                                     <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mb-0.5">ERP Number</p>
-                                    <p className="text-xs font-mono text-indigo-300 font-bold tracking-wider">{(user as any).childEprNo || 'N/A'}</p>
+                                    <p className="text-xs font-mono text-indigo-300 font-bold tracking-wider">{user.childEprNo || 'N/A'}</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mb-0.5">Campus</p>
                                     <p className="text-xs font-bold text-white tracking-tight truncate">
                                         {user.role === 'Staff'
-                                            ? (campuses.find(c => c.id === (user as any).childCampusId)?.campusName || 'Loading...')
-                                            : ((user as any).assignedCampus || 'Achariya')
+                                            ? resolvedStaffCampus
+                                            : (user.assignedCampus || 'Achariya')
                                         }
                                     </p>
                                 </div>
@@ -440,82 +621,84 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                 )}
 
                 {/* Prompt to Link Child if Missing (Parents & Relevant Staff) */}
-                {((user.role === 'Parent') || (user.role === 'Staff' && user.childInAchariya)) &&
-                    !(user as any).childName && !(user as any).childEprNo && (
+                {!isAdmin && ((user.role === 'Parent') || (user.role === 'Staff' && user.childInAchariya)) &&
+                    !user.childName && !user.childEprNo && (
                         <button
                             onClick={() => setIsEditingProfile(true)}
                             className="w-full mb-6 group relative overflow-hidden rounded-2xl p-[1px] focus:outline-none"
                         >
-                            <span className="absolute inset-0 bg-gradient-to-r from-amber-400/50 via-amber-200/50 to-amber-400/50 opacity-100 group-hover:opacity-100 animate-gradient-xy transition-opacity" />
+                            <span className="absolute inset-0 bg-gradient-to-r from-amber-400/50 via-amber-200/50 to-amber-400/50 opacity-100 animate-gradient-xy transition-opacity" />
                             <div className="relative bg-slate-900 rounded-2xl p-5 flex items-center gap-4 transition-transform group-active:scale-[0.98]">
-                                <div className="w-12 h-12 rounded-full bg-[var(--radiant-gold)]/10 text-[var(--radiant-gold)] flex items-center justify-center shrink-0 border border-[var(--radiant-gold)]/20 group-hover:bg-[var(--radiant-gold)] group-hover:text-black transition-colors">
+                                <div className="w-12 h-12 rounded-full bg-amber-400/15 text-amber-300 flex items-center justify-center shrink-0 border border-amber-400/30 group-hover:bg-amber-400 group-hover:text-slate-950 transition-colors">
                                     <Shield size={24} strokeWidth={2.5} />
                                 </div>
                                 <div className="flex-1 text-left">
-                                    <h3 className="text-sm font-black text-[var(--radiant-gold)] uppercase tracking-wide group-hover:text-white transition-colors">Link Child Details</h3>
+                                    <h3 className="text-sm font-black text-amber-300 uppercase tracking-wide group-hover:text-white transition-colors">Link Child Details</h3>
                                     <p className="text-[10px] text-white/50 font-medium leading-tight mt-0.5">
-                                        Claim your <strong>School Fee Discount</strong> by linking your child's ERP details.
+                                        Claim your <strong>School Fee Discount</strong> by linking your child&apos;s ERP details.
                                     </p>
                                 </div>
-                                < ChevronRight size={18} className="text-amber-400/50 group-hover:text-white transition-colors" />
+                                <ChevronRight size={18} className="text-amber-400/50 group-hover:text-white transition-colors" />
                             </div>
                         </button>
                     )}
 
                 {/* Edit Form or Menu List */}
                 <div className="space-y-4">
-                    {/* PROFILE EDIT MODE */}
                     {isEditingProfile ? (
                         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+                            <div className={`${formSurface} rounded-2xl p-6 space-y-4`}>
                                 <div className="flex items-center justify-between">
-                                    <h3 className="text-sm font-bold text-white/60 uppercase tracking-wide">Edit Personal Details</h3>
-                                    <button onClick={handleCancel} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors">
-                                        <X size={14} className="text-white/60" />
+                                    <h3 className={`text-sm font-bold uppercase tracking-wide ${isLight ? 'text-slate-700' : 'text-white/70'}`}>Edit Personal Details</h3>
+                                    <button
+                                        onClick={handleCancel}
+                                        className={`no-mobile-btn p-2 rounded-full transition-colors ${isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-600' : 'bg-white/5 hover:bg-white/10 text-white/60'}`}
+                                    >
+                                        <X size={14} />
                                     </button>
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-white/40 ml-1">Full Name</label>
+                                    <label className={`text-xs font-bold ml-1 ${subLabelText}`}>Full Name</label>
                                     <input
                                         type="text"
                                         value={fullName}
                                         onChange={(e) => setFullName(e.target.value)}
-                                        className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:outline-none transition-colors"
+                                        className={inputClasses}
                                     />
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-white/40 ml-1">Email</label>
+                                    <label className={`text-xs font-bold ml-1 ${subLabelText}`}>Email</label>
                                     <input
                                         type="email"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         placeholder="Add email address"
-                                        className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:outline-none transition-colors"
+                                        className={inputClasses}
                                     />
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-bold text-white/40 ml-1">Address</label>
+                                    <label className={`text-xs font-bold ml-1 ${subLabelText}`}>Address</label>
                                     <textarea
                                         value={address}
                                         onChange={(e) => setAddress(e.target.value)}
                                         placeholder="Add your address"
                                         rows={3}
-                                        className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:outline-none transition-colors resize-none"
+                                        className={`${inputClasses} resize-none`}
                                     />
                                 </div>
 
                                 {/* Child Details Section for Staff (with child opt-in) & Parents */}
-                                {((user.role === 'Staff' && user.childInAchariya) || user.role === 'Parent') && (
+                                {!isAdmin && ((user.role === 'Staff' && user.childInAchariya) || user.role === 'Parent') && (
                                     <div className="pt-4 border-t border-white/10 space-y-4">
                                         <div className="flex items-center justify-between">
                                             <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wide">Child Details (Achariya)</h3>
-                                            {(user as any).childInAchariya && (
+                                            {user.childInAchariya && (
                                                 <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
                                                     <Lock size={10} className="text-emerald-400" />
-                                                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">Verified & Locked</span>
+                                                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">Verified &amp; Locked</span>
                                                 </div>
                                             )}
                                         </div>
@@ -527,8 +710,8 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                                 value={childEprNo}
                                                 onChange={(e) => setChildEprNo(e.target.value)}
                                                 placeholder="Enter ERP Number"
-                                                disabled={(user as any).childInAchariya}
-                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors focus:outline-none ${(user as any).childInAchariya ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50'}`}
+                                                disabled={user.childInAchariya}
+                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors focus:outline-none ${user.childInAchariya ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50'}`}
                                             />
                                         </div>
 
@@ -539,8 +722,8 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                                 value={childName}
                                                 onChange={(e) => setChildName(e.target.value)}
                                                 placeholder="Enter Child Name"
-                                                disabled={(user as any).childInAchariya}
-                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors focus:outline-none ${(user as any).childInAchariya ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50'}`}
+                                                disabled={user.childInAchariya}
+                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors focus:outline-none ${user.childInAchariya ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50'}`}
                                             />
                                         </div>
 
@@ -550,10 +733,10 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                                 value={childCampusId}
                                                 onChange={(e) => {
                                                     setChildCampusId(e.target.value)
-                                                    setGrade('') // Reset grade on campus change
+                                                    setGrade('')
                                                 }}
-                                                disabled={(user as any).childInAchariya}
-                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors appearance-none ${(user as any).childInAchariya ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50 cursor-pointer'}`}
+                                                disabled={user.childInAchariya}
+                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors appearance-none ${user.childInAchariya ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50 cursor-pointer'}`}
                                             >
                                                 <option value="" className="bg-slate-900 text-white/50">Select Campus</option>
                                                 {campuses.map(c => (
@@ -567,23 +750,19 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                             <select
                                                 value={grade}
                                                 onChange={(e) => setGrade(e.target.value)}
-                                                disabled={(user as any).childInAchariya || !childCampusId}
-                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors appearance-none ${(user as any).childInAchariya || !childCampusId ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50 cursor-pointer'}`}
+                                                disabled={user.childInAchariya || !childCampusId}
+                                                className={`w-full bg-black/20 border rounded-xl px-4 py-3 text-white transition-colors appearance-none ${user.childInAchariya || !childCampusId ? 'border-transparent opacity-50 cursor-not-allowed' : 'border-white/10 focus:border-amber-500/50 cursor-pointer'}`}
                                             >
-                                                {/* Copied from previous logic, simplified for brevity here, reused same logic */}
                                                 <option value="" className="bg-slate-900 text-white/50">
                                                     {!childCampusId ? 'Select Campus First' : 'Select Grade'}
                                                 </option>
                                                 {(() => {
                                                     const supportedGrades = getGradesForCampus(childCampusId, campuses)
-
-                                                    // Fallback: If strict matching returns nothing, show all GRADES to avoid blocking user
                                                     if (supportedGrades.length === 0) {
                                                         return (GRADES as readonly string[]).map(g => (
                                                             <option key={g} value={g} className="bg-slate-900 text-white">{g}</option>
                                                         ))
                                                     }
-
                                                     return supportedGrades.map(g => (
                                                         <option key={g} value={g} className="bg-slate-900 text-white">{g}</option>
                                                     ))
@@ -591,7 +770,7 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                             </select>
                                         </div>
 
-                                        {!(user as any).childInAchariya ? (
+                                        {!user.childInAchariya ? (
                                             <p className="text-[9px] text-amber-200/60 ml-1 flex items-center gap-1.5 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
                                                 <Shield size={10} />
                                                 Updating these details will reset your benefit status to <strong>Pending Verification</strong> until approved by Admin.
@@ -608,20 +787,19 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                 <button
                                     onClick={handleSave}
                                     disabled={saving}
-                                    className="w-full py-4 rounded-xl bg-gradient-to-r from-[var(--radiant-emerald)] to-emerald-700 text-white font-bold uppercase tracking-widest shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 mt-4"
+                                    className="no-dark-override w-full py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-bold uppercase tracking-widest shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 mt-4 transition-all disabled:opacity-60"
                                 >
-                                    {saving ? 'Saving...' : 'Save Profile Only'}
+                                    {saving ? 'Saving...' : 'Save Changes'}
                                     {!saving && <Check size={18} />}
                                 </button>
                             </div>
                         </div>
-                    ) : isEditingBank ? (
-                        /* BANK EDIT MODE */
+                    ) : isEditingBank && !isAdmin ? (
                         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
                             <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-wide">Edit Bank Details</h3>
-                                    <button onClick={handleCancel} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors">
+                                    <button onClick={handleCancel} className="no-mobile-btn p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors">
                                         <X size={14} className="text-white/60" />
                                     </button>
                                 </div>
@@ -629,7 +807,7 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                 <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-start gap-3">
                                     <Shield size={16} className="text-emerald-400 mt-0.5 shrink-0" />
                                     <p className="text-[10px] text-emerald-200/80 leading-relaxed">
-                                        These details are Encrypted & Secure. They will be used for your payout processing.
+                                        Used securely for reward and refund payout processing.
                                     </p>
                                 </div>
 
@@ -669,202 +847,297 @@ export default function ProfileClient({ user, logoutAction }: ProfileClientProps
                                 <button
                                     onClick={handleSave}
                                     disabled={saving}
-                                    className="w-full py-4 rounded-xl bg-gradient-to-r from-[var(--radiant-emerald)] to-emerald-700 text-white font-bold uppercase tracking-widest shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 mt-4"
+                                    className="no-dark-override w-full py-4 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 text-white font-bold uppercase tracking-widest shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 mt-4 transition-all disabled:opacity-60"
                                 >
                                     {saving ? 'Saving...' : 'Update Bank Details'}
                                     {!saving && <Check size={18} />}
                                 </button>
                             </div>
                         </div>
+                    ) : isChangingPassword ? (
+                        <form onSubmit={handlePasswordSubmit} className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                            <div className={`${formSurface} rounded-2xl p-6 space-y-4`}>
+                                <div className="flex items-center justify-between">
+                                    <h3 className={`text-sm font-bold uppercase tracking-wide ${isLight ? 'text-blue-700' : 'text-blue-300'}`}>Change Password</h3>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsChangingPassword(false)
+                                            setCurrentPassword('')
+                                            setNewPassword('')
+                                            setConfirmPassword('')
+                                        }}
+                                        className={`no-mobile-btn p-2 rounded-full transition-colors ${isLight ? 'bg-slate-100 hover:bg-slate-200 text-slate-600' : 'bg-white/5 hover:bg-white/10 text-white/60'}`}
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className={`text-xs font-bold ml-1 ${subLabelText}`}>Current Password</label>
+                                    <input
+                                        type={showPasswords ? 'text' : 'password'}
+                                        value={currentPassword}
+                                        onChange={(e) => setCurrentPassword(e.target.value)}
+                                        placeholder="Enter current password"
+                                        required
+                                        className={inputClasses}
+                                    />
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className={`text-xs font-bold ml-1 ${subLabelText}`}>New Password</label>
+                                    <input
+                                        type={showPasswords ? 'text' : 'password'}
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                        placeholder="Min 8 chars, 1 upper, 1 number, 1 symbol"
+                                        required
+                                        className={inputClasses}
+                                    />
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className={`text-xs font-bold ml-1 ${subLabelText}`}>Confirm New Password</label>
+                                    <input
+                                        type={showPasswords ? 'text' : 'password'}
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        placeholder="Re-enter new password"
+                                        required
+                                        className={inputClasses}
+                                    />
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPasswords(v => !v)}
+                                    className={`no-mobile-btn text-[11px] font-bold flex items-center gap-1.5 ${isLight ? 'text-slate-600 hover:text-slate-900' : 'text-white/60 hover:text-white'}`}
+                                >
+                                    {showPasswords ? <EyeOff size={13} /> : <Eye size={13} />}
+                                    {showPasswords ? 'Hide passwords' : 'Show passwords'}
+                                </button>
+
+                                <button
+                                    type="submit"
+                                    disabled={savingPassword}
+                                    className="no-dark-override w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold uppercase tracking-widest shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 mt-2 disabled:opacity-60 transition-all"
+                                >
+                                    {savingPassword ? 'Updating...' : 'Update Password'}
+                                    {!savingPassword && <Check size={18} />}
+                                </button>
+                            </div>
+                        </form>
                     ) : (
                         /* READ ONLY MODE */
                         <>
-                            {/* Read-Only Menu Links - Separated Cards for Premium Feel */}
-                            <div className="flex flex-col gap-4">
-                                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/10 transition-colors group">
-                                    <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <div className="flex flex-col gap-3">
+                                <div className={`${cardSurface} rounded-2xl p-4 flex items-center gap-4 transition-all group`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${isLight ? 'bg-blue-50 text-blue-600' : 'bg-blue-500/15 text-blue-400'}`}>
                                         <Phone size={18} />
                                     </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-0.5">Mobile</p>
-                                        <p className="text-sm font-bold text-white tracking-tight">{user.mobileNumber || user.adminMobile || 'N/A'}</p>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${subLabelText}`}>Mobile</p>
+                                        <p className={`text-sm font-bold tracking-tight ${headingText}`}>{user.mobileNumber || user.adminMobile || 'N/A'}</p>
                                     </div>
                                 </div>
 
-                                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/10 transition-colors group">
-                                    <div className="w-10 h-10 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <div className={`${cardSurface} rounded-2xl p-4 flex items-center gap-4 transition-all group`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${isLight ? 'bg-purple-50 text-purple-600' : 'bg-purple-500/15 text-purple-400'}`}>
                                         <Mail size={18} />
                                     </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-0.5">Email</p>
-                                        <p className="text-sm font-bold text-white tracking-tight">{email || 'Not provided'}</p>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${subLabelText}`}>Email</p>
+                                        <p className={`text-sm font-bold tracking-tight truncate ${headingText}`}>{email || 'Not provided'}</p>
                                     </div>
                                 </div>
 
-                                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/10 transition-colors group">
-                                    <div className="w-10 h-10 rounded-full bg-pink-500/10 text-pink-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <div className={`${cardSurface} rounded-2xl p-4 flex items-center gap-4 transition-all group`}>
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${isLight ? 'bg-pink-50 text-pink-600' : 'bg-pink-500/15 text-pink-400'}`}>
                                         <MapPin size={18} />
                                     </div>
-                                    <div className="flex-1">
-                                        <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-0.5">Location</p>
-                                        <p className="text-sm font-bold text-white tracking-tight truncate max-w-[200px]">{address || 'No address set'}</p>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${subLabelText}`}>Location</p>
+                                        <p className={`text-sm font-bold tracking-tight truncate ${headingText}`}>{address || 'No address set'}</p>
                                     </div>
                                 </div>
 
-                                {/* Bank Details Read-Only Card */}
-                                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/10 transition-colors group relative">
-                                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                        <CreditCard size={18} />
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-0.5">Bank Details</p>
-                                            <button
-                                                onClick={() => setIsEditingBank(true)}
-                                                className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-emerald-400 transition-colors"
-                                                title="Edit Bank Details"
-                                            >
-                                                <Edit2 size={12} />
-                                            </button>
+                                {/* Bank Details Read-Only Card (Masked Account Number, Ambassadors only) */}
+                                {!isAdmin && (
+                                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center gap-4 hover:bg-white/10 transition-colors group relative">
+                                        <div className="w-10 h-10 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                            <CreditCard size={18} />
                                         </div>
-                                        {bankName || accountNumber ? (
-                                            <div className="text-xs text-white/80 font-mono tracking-tight">
-                                                <p>{bankName}</p>
-                                                <p>{accountNumber}</p>
-                                                <p className="text-white/40 text-[10px]">{ifscCode}</p>
-                                            </div>
-                                        ) : (
+                                        <div className="flex-1">
                                             <div className="flex items-center justify-between">
-                                                <p className="text-sm font-bold text-white/50 tracking-tight">Not Provided</p>
-                                                <button
-                                                    onClick={() => setIsEditingBank(true)}
-                                                    className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider hover:underline"
-                                                >
-                                                    Add Now
-                                                </button>
+                                                <p className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-0.5">Bank Details</p>
+                                                <div className="flex items-center gap-1.5">
+                                                    {accountNumber && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowAccountNumber(v => !v)}
+                                                            className="no-mobile-btn p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-colors"
+                                                            title={showAccountNumber ? 'Hide Account Number' : 'Show Account Number'}
+                                                            aria-label={showAccountNumber ? 'Hide Account Number' : 'Show Account Number'}
+                                                        >
+                                                            {showAccountNumber ? <EyeOff size={12} /> : <Eye size={12} />}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsEditingBank(true)}
+                                                        className="no-mobile-btn p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-emerald-400 transition-colors"
+                                                        title="Edit Bank Details"
+                                                        aria-label="Edit Bank Details"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                </div>
                                             </div>
-                                        )}
+                                            {bankName || accountNumber ? (
+                                                <div className="text-xs text-white/80 font-mono tracking-tight">
+                                                    <p>{bankName}</p>
+                                                    <p>{accountNumber ? (showAccountNumber ? accountNumber : maskAccountNumber(accountNumber)) : ''}</p>
+                                                    <p className="text-white/40 text-[10px]">{ifscCode}</p>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-sm font-bold text-white/50 tracking-tight">Not Provided</p>
+                                                    <button
+                                                        onClick={() => setIsEditingBank(true)}
+                                                        className="no-mobile-btn text-[10px] font-bold text-emerald-400 uppercase tracking-wider hover:underline"
+                                                    >
+                                                        Add Now
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
 
-                            {/* Danger Zone Links */}
-                            <div className="space-y-4 pt-2">
+                            {/* Account, Security & Data Controls (Option A — No prominent red Delete button) */}
+                            <div className="space-y-3 pt-2">
                                 <button
-                                    onClick={() => setShowPrivacyModal(true)}
-                                    className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all group active:scale-[0.98]"
+                                    type="button"
+                                    onClick={() => setIsChangingPassword(true)}
+                                    className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group active:scale-[0.98] ${actionSurface}`}
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${isLight ? 'bg-sky-50 text-sky-600' : 'bg-sky-500/15 text-sky-400'}`}>
+                                            <KeyRound size={18} />
+                                        </div>
+                                        <div className="text-left">
+                                            <h3 className={`font-bold text-sm ${headingText}`}>Change Password</h3>
+                                            <p className={`text-[10px] uppercase tracking-widest ${subLabelText}`}>Update login credentials</p>
+                                        </div>
+                                    </div>
+                                    <ChevronRight size={18} className={`transition-colors ${chevronText}`} />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPrivacyModal(true)}
+                                    className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group active:scale-[0.98] ${actionSurface}`}
+                                >
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${isLight ? 'bg-amber-50 text-amber-600' : 'bg-amber-500/15 text-amber-400'}`}>
                                             <Shield size={18} />
                                         </div>
                                         <div className="text-left">
-                                            <h3 className="font-bold text-white text-sm">Privacy & Security</h3>
-                                            <p className="text-[10px] text-white/40 uppercase tracking-widest">Manage data & policies</p>
+                                            <h3 className={`font-bold text-sm ${headingText}`}>Privacy &amp; Data Controls</h3>
+                                            <p className={`text-[10px] uppercase tracking-widest ${subLabelText}`}>Policies, data rights &amp; closure</p>
                                         </div>
                                     </div>
-                                    <ChevronRight size={18} className="text-white/20 group-hover:text-white/50 transition-colors" />
+                                    <ChevronRight size={18} className={`transition-colors ${chevronText}`} />
                                 </button>
+
                                 <button
-                                    onClick={() => setShowDeleteConfirm(true)}
-                                    className="w-full flex items-center justify-between p-4 rounded-2xl bg-red-500/5 border border-red-500/10 hover:bg-red-500/10 hover:border-red-500/20 transition-all group active:scale-[0.98]"
+                                    type="button"
+                                    onClick={() => router.push(isAdmin ? '/tickets' : '/support')}
+                                    className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all group active:scale-[0.98] ${actionSurface}`}
                                 >
                                     <div className="flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-full bg-[var(--radiant-rose)]/10 text-[var(--radiant-rose)] flex items-center justify-center group-hover:scale-110 transition-transform">
-                                            <Trash2 size={18} />
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${isLight ? 'bg-indigo-50 text-indigo-600' : 'bg-indigo-500/15 text-indigo-400'}`}>
+                                            <HelpCircle size={18} />
                                         </div>
                                         <div className="text-left">
-                                            <h3 className="font-bold text-[var(--radiant-rose)] text-sm">Delete Account</h3>
-                                            <p className="text-[10px] text-[var(--radiant-rose)]/50 uppercase tracking-widest">Permanent action</p>
+                                            <h3 className={`font-bold text-sm ${headingText}`}>Help &amp; Support</h3>
+                                            <p className={`text-[10px] uppercase tracking-widest ${subLabelText}`}>Get assistance or raise a ticket</p>
                                         </div>
                                     </div>
-                                    <ChevronRight size={18} className="text-red-400/20 group-hover:text-red-400/50 transition-colors" />
+                                    <ChevronRight size={18} className={`transition-colors ${chevronText}`} />
                                 </button>
                             </div>
                         </>
                     )}
                 </div>
 
-                {/* App Download / PWA Section */}
-                <div className="pt-8 space-y-4">
-                    <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 backdrop-blur-xl border border-blue-500/20 rounded-3xl p-6 relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none group-hover:bg-blue-500/20 transition-colors" />
+                {/* App Download / PWA Section (Ambassadors on Web/PWA only — hidden for Admins and inside APK) */}
+                {!isAdmin && !isNativeApp && (
+                    <div className="pt-8 space-y-4">
+                        <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 backdrop-blur-xl border border-blue-500/20 rounded-3xl p-6 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl pointer-events-none group-hover:bg-blue-500/20 transition-colors" />
 
-                        <div className="flex items-start gap-4 mb-6">
-                            <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
-                                <Smartphone size={24} />
+                            <div className="flex items-start gap-4 mb-6">
+                                <div className="w-12 h-12 rounded-2xl bg-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                                    <Smartphone size={24} />
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="text-sm font-black text-white uppercase tracking-tight mb-1">Achariya Mobile App</h3>
+                                    <p className="text-[10px] text-white/50 leading-relaxed font-medium">
+                                        Install our official app for a faster experience, offline access, and instant notifications.
+                                    </p>
+                                </div>
                             </div>
-                            <div className="flex-1">
-                                <h3 className="text-sm font-black text-white uppercase tracking-tight mb-1">Achariya Mobile App</h3>
-                                <p className="text-[10px] text-white/50 leading-relaxed font-medium">
-                                    Install our official app for a faster experience, offline access, and instant notifications.
-                                </p>
-                            </div>
+
+                            <button
+                                onClick={() => {
+                                    window.dispatchEvent(new CustomEvent('trigger-PWA-install'))
+                                    toast.info('App Installation Guide Opened', {
+                                        description: 'Follow the steps in the guide to install the app on your home screen.'
+                                    })
+                                }}
+                                className="no-dark-override w-full bg-blue-600 hover:bg-blue-500 text-white h-12 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
+                            >
+                                <Download size={16} />
+                                Download App
+                            </button>
                         </div>
-
-                        <button
-                            onClick={() => {
-                                // Dispatch custom event to trigger global install prompt if available
-                                window.dispatchEvent(new CustomEvent('trigger-PWA-install'));
-                                toast.info('App Installation Guide Opened', {
-                                    description: 'Follow the steps in the guide to install the app on your home screen.'
-                                });
-                            }}
-                            className="w-full bg-blue-600 hover:bg-blue-500 text-white h-12 rounded-xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
-                        >
-                            <Download size={16} />
-                            Download App
-                        </button>
                     </div>
-                </div>
+                )}
 
                 {/* Sign Out */}
                 <div className="pt-8 pb-4">
                     <button
-                        onClick={async () => {
-                            try {
-                                const result = await logoutAction()
-                                if (result.success) {
-                                    router.push('/')
-                                } else {
-                                    toast.error(result.error || 'Failed to sign out')
-                                }
-                            } catch (error) {
-                                console.error('Logout error:', error)
-                                toast.error('Failed to sign out')
-                            }
-                        }}
-                        className="w-full h-14 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center gap-2 font-bold transition-all active:scale-95 text-xs uppercase tracking-widest"
+                        onClick={handleSignOut}
+                        className={`w-full h-14 rounded-2xl border flex items-center justify-center gap-2 font-bold transition-all active:scale-95 text-xs uppercase tracking-widest ${
+                            isLight
+                                ? 'bg-white border-slate-200 text-slate-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 shadow-sm'
+                                : 'border-white/10 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white'
+                        }`}
                     >
                         <LogOut size={16} />
                         Sign Out
                     </button>
-                    <p className="text-center text-[10px] text-white/20 mt-6 uppercase tracking-widest">
-                        Achariya Partnership Program • v2.5.0
+                    <p className={`text-center text-[10px] mt-6 uppercase tracking-widest ${isLight ? 'text-slate-400' : 'text-white/30'}`}>
+                        Achariya Partnership Program
                     </p>
                 </div>
+            </PageAnimate>
 
-            </PageAnimate >
-
-            <PrivacyModal isOpen={showPrivacyModal} onClose={() => setShowPrivacyModal(false)} />
-
-            <ConfirmDialog
-                isOpen={showDeleteConfirm}
-                title="Delete Account?"
-                description={
-                    <div className="space-y-2">
-                        <p className="font-medium text-white/80">Are you absolutely sure?</p>
-                        <p className="text-sm text-white/60">This will permanently remove your account and all associated data. This action cannot be undone.</p>
-                    </div>
-                }
-                confirmText="Delete My Account"
-                variant="danger"
-                onConfirm={() => {
-                    setShowDeleteConfirm(false);
-                    handleDeleteRequest();
-                }}
-                onCancel={() => setShowDeleteConfirm(false)}
+            <PrivacyModal
+                isOpen={showPrivacyModal}
+                onClose={() => setShowPrivacyModal(false)}
+                canRequestDeletion={!isAdmin}
+                isDeletionRequested={accountStatus === 'Deletion_Requested'}
+                referralCount={referralCount}
+                securedValue={user.securedValue || 0}
+                onRequestDeletion={handleDeleteRequest}
+                onCancelDeletion={handleCancelDeleteRequest}
+                onSignOut={handleSignOut}
+                onContactSupport={() => router.push(isAdmin ? '/tickets' : '/support')}
             />
-        </div >
+        </div>
     )
 }

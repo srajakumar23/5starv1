@@ -136,9 +136,9 @@
   color: var(--text-primary);
 }
 
-.dark .card,
-.dark .bg-white,
-.dark [class*="bg-white"] {
+.dark .card:not(.no-dark-override),
+.dark .bg-white:not(.no-dark-override),
+.dark [class*="bg-white"]:not(.no-dark-override) {
   background-color: var(--bg-card) !important;
   color: var(--text-primary);
   border-color: var(--border-color);
@@ -243,10 +243,10 @@
 }
 
 /* Sidebar menu items with white backgrounds */
-.dark .rounded-full,
-.dark .rounded-xl,
-.dark .rounded-2xl,
-.dark .rounded-lg {
+.dark .rounded-full:not(.no-dark-override),
+.dark .rounded-xl:not(.no-dark-override),
+.dark .rounded-2xl:not(.no-dark-override),
+.dark .rounded-lg:not(.no-dark-override) {
   color: var(--text-primary);
 }
 
@@ -301,10 +301,10 @@
 }
 
 /* White rounded buttons/links in sidebar */
-.dark a.rounded-full,
-.dark a.rounded-xl,
-.dark button.rounded-full,
-.dark button.rounded-xl {
+.dark a.rounded-full:not(.no-dark-override),
+.dark a.rounded-xl:not(.no-dark-override),
+.dark button.rounded-full:not(.no-dark-override),
+.dark button.rounded-xl:not(.no-dark-override) {
   background-color: var(--bg-card) !important;
   color: var(--text-primary) !important;
   border-color: var(--border-color) !important;
@@ -1101,10 +1101,10 @@ a {
   }
 
   /* Button touch targets - larger for better usability */
-  button,
-  .btn,
-  [role="button"],
-  a.btn {
+  button:not(.no-mobile-btn),
+  .btn:not(.no-mobile-btn),
+  [role="button"]:not(.no-mobile-btn),
+  a.btn:not(.no-mobile-btn) {
     min-height: var(--mobile-touch-target);
     padding: 14px 24px;
     font-size: var(--mobile-text-base);

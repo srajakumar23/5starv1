@@ -60,4 +60,9 @@ next-env.d.ts
 /*_diag.txt
 /campaign_*_report.csv
 /485538_*.csv
+/exports/*.csv
+/pending_verification_ghost_users.csv
+/*.bak
+/prisma/*.bak
+/*.log
 /backups/
